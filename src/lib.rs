@@ -37,9 +37,16 @@ pub struct AttestationVerifier {
 
 impl AttestationVerifier {
     pub fn new(trusted_root_cert_path: Option<String>, enclave_endpoint: Option<String>) -> Self {
-        let trusted_root_cert =
-            std::fs::read(trusted_root_cert_path.unwrap_or("src/aws_root.der".to_string()))
-                .expect("Failed to read trusted_root_cert file");
+        let trusted_root_cert = std::fs::read_to_string(
+            trusted_root_cert_path.unwrap_or_else(|| "src/aws_root.der".to_string()),
+        )
+        .expect("Failed to read aws_root.der file")
+        .trim()
+        .chars()
+        .collect::<Vec<char>>()
+        .chunks(2)
+        .map(|chunk| u8::from_str_radix(&chunk.iter().collect::<String>(), 16).unwrap())
+        .collect::<Vec<u8>>();
 
         Self {
             trusted_root_cert: trusted_root_cert,
@@ -48,12 +55,25 @@ impl AttestationVerifier {
         }
     }
 
+    /// Fetches the attestation document from the enclave endpoint.
+    ///
+    /// # Arguments
+    ///
+    /// * `nonce` - A string slice that holds the nonce value.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Vec<u8>, String>` - A result containing the attestation document as a vector of bytes on success, or an error message on failure.
     pub fn authenticate(
+        &self,
         document_data: &[u8],
-        trusted_root_cert: &[u8],
+        trusted_root_cert: Option<Vec<u8>>,
     ) -> Result<AttestationDocument, String> {
+        let root_cert = trusted_root_cert.unwrap_or(self.trusted_root_cert.clone());
+
         // Following the steps here: https://docs.aws.amazon.com/enclaves/latest/user/verify-root.html
         // Step 1. Decode the CBOR object and map it to a COSE_Sign1 structure
+
         let (_protected, payload, _signature) = AttestationVerifier::parse(document_data)
             .map_err(|err| format!("AttestationVerifier::authenticate parse failed:{:?}", err))?;
         // Step 2. Exract the attestation document from the COSE_Sign1 structure
@@ -71,7 +91,7 @@ impl AttestationVerifier {
 
         let mut root_store = rustls::RootCertStore::empty();
         root_store
-            .add(&rustls::Certificate(trusted_root_cert.to_vec()))
+            .add(&rustls::Certificate(root_cert))
             .map_err(|err| {
                 format!(
                     "AttestationVerifier::authenticate failed to add trusted root cert:{:?}",
@@ -323,11 +343,11 @@ impl AttestationVerifier {
         })
     }
 
-    fn fetch_attestation_document(enclave_endpoint: &str, nonce: &str) -> Result<Vec<u8>, String> {
+    pub fn fetch_attestation_document(&self, nonce: &str) -> Result<Vec<u8>, String> {
         use reqwest::blocking::Client;
         use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 
-        let url = format!("{}?nonce={}", enclave_endpoint, nonce);
+        let url = format!("{}?nonce={}", self.enclave_endpoint, nonce);
 
         let mut headers = HeaderMap::new();
         headers.insert(USER_AGENT, HeaderValue::from_static("attestation-client"));
@@ -373,25 +393,17 @@ mod tests {
 
         // @note : noce is 40bytes and should be random in practice
         let nonce = "0000000000000000000000000000000000000001";
-        let enclave_endpoint = "https://tlsn.eternis.ai/enclave/attestation";
 
-        let document_data =
-            AttestationVerifier::fetch_attestation_document(enclave_endpoint, nonce)
-                .expect("Failed to fetch attestation document");
+        let attestation_verifier = AttestationVerifier::new(None, None);
 
-        let trusted_root_cert = std::fs::read_to_string("src/aws_root.der")
-            .expect("Failed to read aws_root.der file")
-            .trim()
-            .chars()
-            .collect::<Vec<char>>()
-            .chunks(2)
-            .map(|chunk| u8::from_str_radix(&chunk.iter().collect::<String>(), 16).unwrap())
-            .collect::<Vec<u8>>();
+        let document_data = attestation_verifier
+            .fetch_attestation_document(nonce)
+            .expect("Failed to fetch attestation document");
 
         // println!("document_data:{:?}", document_data);
         //println!("trusted_root_cert:{:?}", trusted_root_cert);
         // Test successful authentication
-        let result = AttestationVerifier::authenticate(&document_data, &trusted_root_cert);
+        let result = attestation_verifier.authenticate(&document_data, None);
 
         println!("result:{:?}", result.as_ref().err());
         assert!(
@@ -404,7 +416,7 @@ mod tests {
             .expect("Failed to read example_attestation file");
         let invalid_document_data =
             base64::decode(invalid_document_data.trim()).expect("Failed to decode base64 data");
-        let result = AttestationVerifier::authenticate(&invalid_document_data, &trusted_root_cert);
+        let result = attestation_verifier.authenticate(&invalid_document_data, None);
 
         assert!(
             result.is_err(),
@@ -413,9 +425,9 @@ mod tests {
 
         // Test with invalid root certificate
         let invalid_root_cert = vec![0; 10]; // Invalid certificate
-        let result = AttestationVerifier::authenticate(&document_data, &invalid_root_cert);
+        let result = attestation_verifier.authenticate(&document_data, Some(invalid_root_cert));
 
-        println!("result:{:?}", result.is_ok());
+        println!("result:{:?}", result.as_ref().err());
         assert!(
             result.is_err(),
             "Authentication should fail with invalid root certificate"
