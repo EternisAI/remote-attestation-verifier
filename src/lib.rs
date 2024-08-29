@@ -400,7 +400,7 @@ mod tests {
         // let document_data =
         //     base64::decode(document_data.trim()).expect("Failed to decode base64 data");
 
-        // @note : noce is 40bytes and should be random in practice
+        // @note : nonce is 40bytes and should be random in practice
         let nonce = "0000000000000000000000000000000000000001";
 
         let attestation_verifier = AttestationVerifier::new(None, None);
@@ -414,6 +414,16 @@ mod tests {
         assert!(
             result.is_ok(),
             "Authentication should succeed with valid data"
+        );
+
+        //try with invalid nonce (too short)
+        let nonce = "000000000000000000000000000000000000001";
+        let result = attestation_verifier.authenticate(Some(nonce), None, None);
+
+        println!("result:{:?}", result.as_ref().err());
+        assert!(
+            result.is_err(),
+            "Authentication should fail with invalid nonce"
         );
 
         // Test authentication failure
