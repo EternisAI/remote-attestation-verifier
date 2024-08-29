@@ -30,18 +30,35 @@ pub struct AttestationDocument {
     pub nonce: Option<Vec<u8>>,
 }
 
-use rustls_pemfile::{certs, pkcs8_private_keys};
-use std::io::BufReader;
+pub struct AttestationVerifier {
+    trusted_root_cert: Vec<u8>,
+    enclave_endpoint: String,
+}
 
-impl AttestationDocument {
-    pub fn authenticate(document_data: &[u8], trusted_root_cert: &[u8]) -> Result<Self, String> {
+impl AttestationVerifier {
+    pub fn new(trusted_root_cert_path: Option<String>, enclave_endpoint: Option<String>) -> Self {
+        let trusted_root_cert =
+            std::fs::read(trusted_root_cert_path.unwrap_or("src/aws_root.der".to_string()))
+                .expect("Failed to read trusted_root_cert file");
+
+        Self {
+            trusted_root_cert: trusted_root_cert,
+            enclave_endpoint: enclave_endpoint
+                .unwrap_or("https://tlsn.eternis.ai/enclave/attestation".to_string()),
+        }
+    }
+
+    pub fn authenticate(
+        document_data: &[u8],
+        trusted_root_cert: &[u8],
+    ) -> Result<AttestationDocument, String> {
         // Following the steps here: https://docs.aws.amazon.com/enclaves/latest/user/verify-root.html
         // Step 1. Decode the CBOR object and map it to a COSE_Sign1 structure
-        let (_protected, payload, _signature) = AttestationDocument::parse(document_data)
-            .map_err(|err| format!("AttestationDocument::authenticate parse failed:{:?}", err))?;
+        let (_protected, payload, _signature) = AttestationVerifier::parse(document_data)
+            .map_err(|err| format!("AttestationVerifier::authenticate parse failed:{:?}", err))?;
         // Step 2. Exract the attestation document from the COSE_Sign1 structure
-        let document = AttestationDocument::parse_payload(&payload)
-            .map_err(|err| format!("AttestationDocument::authenticate failed:{:?}", err))?;
+        let document = AttestationVerifier::parse_payload(&payload)
+            .map_err(|err| format!("AttestationVerifier::authenticate failed:{:?}", err))?;
 
         // Step 3. Verify the certificate's chain
         let mut certs: Vec<rustls::Certificate> = Vec::new();
@@ -57,7 +74,7 @@ impl AttestationDocument {
             .add(&rustls::Certificate(trusted_root_cert.to_vec()))
             .map_err(|err| {
                 format!(
-                    "AttestationDocument::authenticate failed to add trusted root cert:{:?}",
+                    "AttestationVerifier::authenticate failed to add trusted root cert:{:?}",
                     err
                 )
             })?;
@@ -71,7 +88,7 @@ impl AttestationDocument {
             )
             .map_err(|err| {
                 format!(
-                    "AttestationDocument::authenticate verify_client_cert failed:{:?}",
+                    "AttestationVerifier::authenticate verify_client_cert failed:{:?}",
                     err
                 )
             })?;
@@ -81,31 +98,31 @@ impl AttestationDocument {
         let authenticated = {
             let sig_structure = aws_nitro_enclaves_cose::CoseSign1::from_bytes(document_data)
                 .map_err(|err| {
-                    format!("AttestationDocument::authenticate failed to load document_data as COSESign1 structure:{:?}", err)
+                    format!("AttestationVerifier::authenticate failed to load document_data as COSESign1 structure:{:?}", err)
                 })?;
             let cert = openssl::x509::X509::from_der(&document.certificate)
                 .map_err(|err| {
-                    format!("AttestationDocument::authenticate failed to parse document.certificate as X509 certificate:{:?}", err)
+                    format!("AttestationVerifier::authenticate failed to parse document.certificate as X509 certificate:{:?}", err)
                 })?;
             let public_key = cert.public_key()
                 .map_err(|err| {
-                    format!("AttestationDocument::authenticate failed to extract public key from certificate:{:?}", err)
+                    format!("AttestationVerifier::authenticate failed to extract public key from certificate:{:?}", err)
                 })?;
             let pub_ec_key = public_key.ec_key().map_err(|err| {
                 format!(
-                    "AttestationDocument::authenticate failed to get ec_key from public_key:{:?}",
+                    "AttestationVerifier::authenticate failed to get ec_key from public_key:{:?}",
                     err
                 )
             })?;
             let result = sig_structure.verify_signature::<aws_nitro_enclaves_cose::crypto::Openssl>(&public_key)
                 .map_err(|err| {
-                    format!("AttestationDocument::authenticate failed to verify signature on sig_structure:{:?}", err)
+                    format!("AttestationVerifier::authenticate failed to verify signature on sig_structure:{:?}", err)
                 })?;
             result
         };
         if !authenticated {
             return Err(format!(
-                "AttestationDocument::authenticate invalid COSE certificate for provided key"
+                "AttestationVerifier::authenticate invalid COSE certificate for provided key"
             ));
         } else {
             return Ok(document);
@@ -114,36 +131,36 @@ impl AttestationDocument {
 
     fn parse(document_data: &[u8]) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), String> {
         let cbor: serde_cbor::Value = serde_cbor::from_slice(document_data)
-            .map_err(|err| format!("AttestationDocument::parse from_slice failed:{:?}", err))?;
+            .map_err(|err| format!("AttestationVerifier::parse from_slice failed:{:?}", err))?;
         let elements = match cbor {
             serde_cbor::Value::Array(elements) => elements,
-            _ => panic!("AttestationDocument::parse Unknown field cbor:{:?}", cbor),
+            _ => panic!("AttestationVerifier::parse Unknown field cbor:{:?}", cbor),
         };
         let protected = match &elements[0] {
             serde_cbor::Value::Bytes(prot) => prot,
             _ => panic!(
-                "AttestationDocument::parse Unknown field protected:{:?}",
+                "AttestationVerifier::parse Unknown field protected:{:?}",
                 elements[0]
             ),
         };
         let _unprotected = match &elements[1] {
             serde_cbor::Value::Map(unprot) => unprot,
             _ => panic!(
-                "AttestationDocument::parse Unknown field unprotected:{:?}",
+                "AttestationVerifier::parse Unknown field unprotected:{:?}",
                 elements[1]
             ),
         };
         let payload = match &elements[2] {
             serde_cbor::Value::Bytes(payld) => payld,
             _ => panic!(
-                "AttestationDocument::parse Unknown field payload:{:?}",
+                "AttestationVerifier::parse Unknown field payload:{:?}",
                 elements[2]
             ),
         };
         let signature = match &elements[3] {
             serde_cbor::Value::Bytes(sig) => sig,
             _ => panic!(
-                "AttestationDocument::parse Unknown field signature:{:?}",
+                "AttestationVerifier::parse Unknown field signature:{:?}",
                 elements[3]
             ),
         };
@@ -158,7 +175,7 @@ impl AttestationDocument {
             serde_cbor::Value::Map(map) => map,
             _ => {
                 return Err(format!(
-                    "AttestationDocument::parse_payload field ain't what it should be:{:?}",
+                    "AttestationVerifier::parse_payload field ain't what it should be:{:?}",
                     document_data
                 ))
             }
@@ -169,7 +186,7 @@ impl AttestationDocument {
                 Some(serde_cbor::Value::Text(val)) => val.to_string(),
                 _ => {
                     return Err(format!(
-                        "AttestationDocument::parse_payload module_id is wrong type or not present"
+                        "AttestationVerifier::parse_payload module_id is wrong type or not present"
                     ))
                 }
             };
@@ -179,14 +196,14 @@ impl AttestationDocument {
                 Some(serde_cbor::Value::Integer(val)) => *val,
                 _ => {
                     return Err(format!(
-                        "AttestationDocument::parse_payload timestamp is wrong type or not present"
+                        "AttestationVerifier::parse_payload timestamp is wrong type or not present"
                     ))
                 }
             };
 
         let timestamp: u64 = timestamp.try_into().map_err(|err| {
             format!(
-                "AttestationDocument::parse_payload failed to convert timestamp to u64:{:?}",
+                "AttestationVerifier::parse_payload failed to convert timestamp to u64:{:?}",
                 err
             )
         })?;
@@ -203,7 +220,7 @@ impl AttestationDocument {
                 Some(serde_cbor::Value::Bytes(val)) => val.to_vec(),
                 _ => {
                     return Err(format!(
-                    "AttestationDocument::parse_payload certificate is wrong type or not present"
+                    "AttestationVerifier::parse_payload certificate is wrong type or not present"
                 ))
                 }
             };
@@ -214,20 +231,20 @@ impl AttestationDocument {
             Some(serde_cbor::Value::Map(map)) => {
                 let mut ret_vec: Vec<Vec<u8>> = Vec::new();
                 let num_entries:i128 = map.len().try_into()
-                    .map_err(|err| format!("AttestationDocument::parse_payload failed to convert pcrs len into i128:{:?}", err))?;
+                    .map_err(|err| format!("AttestationVerifier::parse_payload failed to convert pcrs len into i128:{:?}", err))?;
                 for x in 0..num_entries {
                     match map.get(&serde_cbor::Value::Integer(x)) {
                         Some(serde_cbor::Value::Bytes(inner_vec)) => {
                             ret_vec.push(inner_vec.to_vec());
                         },
-                        _ => return Err(format!("AttestationDocument::parse_payload pcrs inner vec is wrong type or not there?")),
+                        _ => return Err(format!("AttestationVerifier::parse_payload pcrs inner vec is wrong type or not there?")),
                     }
                 }
                 ret_vec
             }
             _ => {
                 return Err(format!(
-                    "AttestationDocument::parse_payload pcrs is wrong type or not present"
+                    "AttestationVerifier::parse_payload pcrs is wrong type or not present"
                 ))
             }
         };
@@ -243,7 +260,7 @@ impl AttestationDocument {
                 None => None,
                 _ => {
                     return Err(format!(
-                        "AttestationDocument::parse_payload nonce is wrong type or not present"
+                        "AttestationVerifier::parse_payload nonce is wrong type or not present"
                     ))
                 }
             };
@@ -262,7 +279,7 @@ impl AttestationDocument {
             Some(serde_cbor::Value::Text(val)) => val.to_string(),
             _ => {
                 return Err(format!(
-                    "AttestationDocument::parse_payload digest is wrong type or not present"
+                    "AttestationVerifier::parse_payload digest is wrong type or not present"
                 ))
             }
         };
@@ -278,7 +295,7 @@ impl AttestationDocument {
                             }
                             _ => {
                                 return Err(format!(
-                                    "AttestationDocument::parse_payload inner_vec is wrong type"
+                                    "AttestationVerifier::parse_payload inner_vec is wrong type"
                                 ))
                             }
                         }
@@ -287,7 +304,7 @@ impl AttestationDocument {
                 }
                 _ => {
                     return Err(format!(
-                    "AttestationDocument::parse_payload cabundle is wrong type or not present:{:?}",
+                    "AttestationVerifier::parse_payload cabundle is wrong type or not present:{:?}",
                     document_map.get(&serde_cbor::Value::Text("cabundle".to_string()))
                 ))
                 }
@@ -339,6 +356,9 @@ impl AttestationDocument {
     }
 }
 
+use rustls_pemfile::{certs, pkcs8_private_keys};
+use std::io::BufReader;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -356,7 +376,7 @@ mod tests {
         let enclave_endpoint = "https://tlsn.eternis.ai/enclave/attestation";
 
         let document_data =
-            AttestationDocument::fetch_attestation_document(enclave_endpoint, nonce)
+            AttestationVerifier::fetch_attestation_document(enclave_endpoint, nonce)
                 .expect("Failed to fetch attestation document");
 
         let trusted_root_cert = std::fs::read_to_string("src/aws_root.der")
@@ -371,7 +391,7 @@ mod tests {
         // println!("document_data:{:?}", document_data);
         //println!("trusted_root_cert:{:?}", trusted_root_cert);
         // Test successful authentication
-        let result = AttestationDocument::authenticate(&document_data, &trusted_root_cert);
+        let result = AttestationVerifier::authenticate(&document_data, &trusted_root_cert);
 
         println!("result:{:?}", result.as_ref().err());
         assert!(
@@ -384,7 +404,7 @@ mod tests {
             .expect("Failed to read example_attestation file");
         let invalid_document_data =
             base64::decode(invalid_document_data.trim()).expect("Failed to decode base64 data");
-        let result = AttestationDocument::authenticate(&invalid_document_data, &trusted_root_cert);
+        let result = AttestationVerifier::authenticate(&invalid_document_data, &trusted_root_cert);
 
         assert!(
             result.is_err(),
@@ -393,7 +413,7 @@ mod tests {
 
         // Test with invalid root certificate
         let invalid_root_cert = vec![0; 10]; // Invalid certificate
-        let result = AttestationDocument::authenticate(&document_data, &invalid_root_cert);
+        let result = AttestationVerifier::authenticate(&document_data, &invalid_root_cert);
 
         println!("result:{:?}", result.is_ok());
         assert!(
