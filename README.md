@@ -3,7 +3,7 @@
 ## How verification works
 
 Nitro enclave returns an AWS signed certificate.
-To be valid an attestation document must have a valid certificate (verified against AWS root certificate), and the PCR values must correspond to the expect code and environment.
+To be valid an attestation document must have a valid certificate (verified against AWS root certificate), the certificate must not be expired, and the PCR values must correspond to the expect values.
 
 If PCR values are zeroes it's probably because the nitro enclave is running in debug mode.
 
