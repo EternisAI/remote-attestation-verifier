@@ -306,14 +306,11 @@ impl AttestationDocument {
         })
     }
 
-    fn fetch_attestation_document(nonce: &str) -> Result<Vec<u8>, String> {
+    fn fetch_attestation_document(enclave_endpoint: &str, nonce: &str) -> Result<Vec<u8>, String> {
         use reqwest::blocking::Client;
         use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 
-        let url = format!(
-            "https://ec2-18-206-240-24.compute-1.amazonaws.com:443/enclave/attestation?nonce={}",
-            nonce
-        );
+        let url = format!("{}?nonce={}", enclave_endpoint, nonce);
 
         let mut headers = HeaderMap::new();
         headers.insert(USER_AGENT, HeaderValue::from_static("attestation-client"));
@@ -349,15 +346,18 @@ mod tests {
     #[test]
     fn test_authenticate() {
         // From file
-        let document_data = std::fs::read_to_string("src/example_attestation_2")
-            .expect("Failed to read example_attestation file");
-        let document_data =
-            base64::decode(document_data.trim()).expect("Failed to decode base64 data");
+        // let document_data = std::fs::read_to_string("src/example_attestation")
+        //     .expect("Failed to read example_attestation file");
+        // let document_data =
+        //     base64::decode(document_data.trim()).expect("Failed to decode base64 data");
 
         // @note : noce is 40bytes and should be random in practice
-        // let nonce = "0000000000000000000000000000000000000001";
-        // let document_data = AttestationDocument::fetch_attestation_document(nonce)
-        //     .expect("Failed to fetch attestation document");
+        let nonce = "0000000000000000000000000000000000000001";
+        let enclave_endpoint = "https://tlsn.eternis.ai/enclave/attestation";
+
+        let document_data =
+            AttestationDocument::fetch_attestation_document(enclave_endpoint, nonce)
+                .expect("Failed to fetch attestation document");
 
         let trusted_root_cert = std::fs::read_to_string("src/aws_root.der")
             .expect("Failed to read aws_root.der file")
