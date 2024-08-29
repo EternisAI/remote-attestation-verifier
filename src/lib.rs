@@ -349,10 +349,10 @@ mod tests {
     #[test]
     fn test_authenticate() {
         // From file
-        // let document_data = std::fs::read_to_string("src/example_attestation_2")
-        //     .expect("Failed to read example_attestation file");
-        // let document_data =
-        //     base64::decode(document_data.trim()).expect("Failed to decode base64 data");
+        let document_data = std::fs::read_to_string("src/example_attestation_2")
+            .expect("Failed to read example_attestation file");
+        let document_data =
+            base64::decode(document_data.trim()).expect("Failed to decode base64 data");
 
         // @note : noce is 40bytes and should be random in practice
         // let nonce = "0000000000000000000000000000000000000001";
