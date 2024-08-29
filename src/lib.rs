@@ -14,6 +14,8 @@ use reqwest;
 use std::collections::BTreeMap;
 use std::convert::TryInto;
 
+const DEFAULT_ENCLAVE_ENDPOINT: &str = "https://tlsn.eternis.ai/enclave/attestation";
+const DEFAULT_ROOT_CERT_PATH: &str = "src/aws_root.der";
 // The AWS Nitro Attestation Document.
 // This is described in
 // https://docs.aws.amazon.com/ko_kr/enclaves/latest/user/verify-root.html
@@ -38,7 +40,7 @@ pub struct AttestationVerifier {
 impl AttestationVerifier {
     pub fn new(trusted_root_cert_path: Option<String>, enclave_endpoint: Option<String>) -> Self {
         let trusted_root_cert = std::fs::read_to_string(
-            trusted_root_cert_path.unwrap_or_else(|| "src/aws_root.der".to_string()),
+            trusted_root_cert_path.unwrap_or_else(|| DEFAULT_ROOT_CERT_PATH.to_string()),
         )
         .expect("Failed to read aws_root.der file")
         .trim()
@@ -50,8 +52,7 @@ impl AttestationVerifier {
 
         Self {
             trusted_root_cert: trusted_root_cert,
-            enclave_endpoint: enclave_endpoint
-                .unwrap_or("https://tlsn.eternis.ai/enclave/attestation".to_string()),
+            enclave_endpoint: enclave_endpoint.unwrap_or(DEFAULT_ENCLAVE_ENDPOINT.to_string()),
         }
     }
 
