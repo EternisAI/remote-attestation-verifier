@@ -66,9 +66,17 @@ impl AttestationVerifier {
     /// * `Result<Vec<u8>, String>` - A result containing the attestation document as a vector of bytes on success, or an error message on failure.
     pub fn authenticate(
         &self,
-        document_data: &[u8],
+        nonce: Option<&str>,
+        document_data: Option<&[u8]>,
         trusted_root_cert: Option<Vec<u8>>,
     ) -> Result<AttestationDocument, String> {
+        let document_data = if let Some(data) = document_data {
+            &data.to_vec()
+        } else {
+            &self
+                .fetch_attestation_document(nonce.unwrap_or(""))
+                .map_err(|err| format!("Failed to fetch attestation document: {:?}", err))?
+        };
         let root_cert = trusted_root_cert.unwrap_or(self.trusted_root_cert.clone());
 
         // Following the steps here: https://docs.aws.amazon.com/enclaves/latest/user/verify-root.html
@@ -396,14 +404,10 @@ mod tests {
 
         let attestation_verifier = AttestationVerifier::new(None, None);
 
-        let document_data = attestation_verifier
-            .fetch_attestation_document(nonce)
-            .expect("Failed to fetch attestation document");
-
         // println!("document_data:{:?}", document_data);
         //println!("trusted_root_cert:{:?}", trusted_root_cert);
         // Test successful authentication
-        let result = attestation_verifier.authenticate(&document_data, None);
+        let result = attestation_verifier.authenticate(Some(nonce), None, None);
 
         println!("result:{:?}", result.as_ref().err());
         assert!(
@@ -416,7 +420,7 @@ mod tests {
             .expect("Failed to read example_attestation file");
         let invalid_document_data =
             base64::decode(invalid_document_data.trim()).expect("Failed to decode base64 data");
-        let result = attestation_verifier.authenticate(&invalid_document_data, None);
+        let result = attestation_verifier.authenticate(None, Some(&invalid_document_data), None);
 
         assert!(
             result.is_err(),
@@ -425,7 +429,7 @@ mod tests {
 
         // Test with invalid root certificate
         let invalid_root_cert = vec![0; 10]; // Invalid certificate
-        let result = attestation_verifier.authenticate(&document_data, Some(invalid_root_cert));
+        let result = attestation_verifier.authenticate(Some(nonce), None, Some(invalid_root_cert));
 
         println!("result:{:?}", result.as_ref().err());
         assert!(
