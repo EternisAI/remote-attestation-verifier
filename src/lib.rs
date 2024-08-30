@@ -13,6 +13,7 @@ use openssl::pkey::Public;
 use reqwest;
 use std::collections::BTreeMap;
 use std::convert::TryInto;
+use x509_cert::{der::Decode, Certificate};
 
 const DEFAULT_ENCLAVE_ENDPOINT: &str = "https://tlsn.eternis.ai/enclave/attestation";
 const DEFAULT_ROOT_CERT_PATH: &str = "src/aws_root.der";
@@ -60,7 +61,7 @@ impl AttestationVerifier {
     ///
     /// # Arguments
     ///
-    /// * `nonce` - A string slice that holds the nonce value.
+    /// * `nonce` - A string slice that holds the 40 bytesnonce value.
     ///
     /// # Returns
     ///
@@ -129,7 +130,13 @@ impl AttestationVerifier {
                 .map_err(|err| {
                     format!("AttestationVerifier::authenticate failed to load document_data as COSESign1 structure:{:?}", err)
                 })?;
-            let cert = openssl::x509::X509::from_der(&document.certificate)
+
+            let cert2 = x509_cert::Certificate::from_der(&document.certificate).unwrap();
+            let public_key2 = cert2.tbs_certificate.subject_public_key_info;
+
+            println!("public_key2:{:?}", public_key2.subject_public_key);
+
+            let cert =   openssl::x509::X509::from_der(&document.certificate)
                 .map_err(|err| {
                     format!("AttestationVerifier::authenticate failed to parse document.certificate as X509 certificate:{:?}", err)
                 })?;
@@ -400,13 +407,9 @@ mod tests {
         // let document_data =
         //     base64::decode(document_data.trim()).expect("Failed to decode base64 data");
 
-        // @note : nonce is 40bytes and should be random in practice
         let nonce = "0000000000000000000000000000000000000001";
-
         let attestation_verifier = AttestationVerifier::new(None, None);
 
-        // println!("document_data:{:?}", document_data);
-        //println!("trusted_root_cert:{:?}", trusted_root_cert);
         // Test successful authentication
         let result = attestation_verifier.authenticate(Some(nonce), None, None);
 
@@ -415,6 +418,12 @@ mod tests {
             result.is_ok(),
             "Authentication should succeed with valid data"
         );
+    }
+
+    #[test]
+    fn test_authenticate_fail() {
+        let nonce = "0000000000000000000000000000000000000001";
+        let attestation_verifier = AttestationVerifier::new(None, None);
 
         //try with invalid nonce (too short)
         let nonce = "000000000000000000000000000000000000001";
