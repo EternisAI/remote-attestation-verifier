@@ -16,7 +16,7 @@ use std::convert::TryInto;
 use x509_cert::{der::Decode, Certificate};
 
 const DEFAULT_ENCLAVE_ENDPOINT: &str = "https://tlsn.eternis.ai/enclave/attestation";
-const DEFAULT_ROOT_CERT_PATH: &str = "src/aws_root.der";
+const DEFAULT_ROOT_CERT_PATH: &str = "src/aws_root.pem";
 // The AWS Nitro Attestation Document.
 // This is described in
 // https://docs.aws.amazon.com/ko_kr/enclaves/latest/user/verify-root.html
@@ -40,22 +40,68 @@ pub struct AttestationVerifier {
 
 impl AttestationVerifier {
     pub fn new(trusted_root_cert_path: Option<String>, enclave_endpoint: Option<String>) -> Self {
-        let trusted_root_cert = std::fs::read_to_string(
-            trusted_root_cert_path.unwrap_or_else(|| DEFAULT_ROOT_CERT_PATH.to_string()),
-        )
-        .expect("Failed to read aws_root.der file")
-        .trim()
-        .chars()
-        .collect::<Vec<char>>()
-        .chunks(2)
-        .map(|chunk| u8::from_str_radix(&chunk.iter().collect::<String>(), 16).unwrap())
-        .collect::<Vec<u8>>();
+        let trusted_root_cert_path =
+            trusted_root_cert_path.unwrap_or_else(|| DEFAULT_ROOT_CERT_PATH.to_string());
+
+        let trusted_root_cert_pem = std::fs::read_to_string(&trusted_root_cert_path)
+            .expect("Failed to read aws_root.pem file");
+        let trusted_root_cert = rustls_pemfile::certs(&mut trusted_root_cert_pem.as_bytes())
+            .into_iter()
+            .next()
+            .expect("No certificates found in PEM file")
+            .unwrap()
+            .to_vec();
 
         Self {
             trusted_root_cert: trusted_root_cert,
             enclave_endpoint: enclave_endpoint.unwrap_or(DEFAULT_ENCLAVE_ENDPOINT.to_string()),
         }
     }
+
+    // pub fn verify_x509_signature(cert_data: &[u8]) -> Result<bool, Box<dyn std::error::Error>> {
+    //     use rsa::pkcs1v15::{Signature, VerifyingKey};
+    //     use rsa::signature::Verifier;
+    //     use sha2::{Digest, Sha256};
+    //     use spki::SignatureAlgorithm;
+    //     use x509_cert::der::{Decode, Encode};
+    //     use x509_cert::Certificate;
+    //     // Parse the certificate
+    //     let cert = Certificate::from_der(cert_data)?;
+    //     // Extract the TBS (to-be-signed) certificate
+    //     let tbs_certificate = cert.tbs_certificate;
+
+    //     // Get the signature algorithm
+    //     let signature_algorithm = cert.signature_algorithm.oid;
+
+    //     // Get the signature
+    //     let sig_bytes = cert.signature.as_bytes().unwrap().to_vec();
+    //     let signature = Signature::from(sig_bytes.into_boxed_slice());
+
+    //     // Get the public key
+    //     let public_key = &cert.tbs_certificate.subject_public_key_info;
+
+    //     // Verify the signature based on the algorithm
+    //     match signature_algorithm.to_string().as_str() {
+    //         "1.2.840.113549.1.1.11" => {
+    //             // sha256WithRSAEncryption
+    //             // Create a verifying key from the public key
+    //             let verifying_key =
+    //                 VerifyingKey::<Sha256>::new(public_key.subject_public_key).unwrap();
+
+    //             // Create a Sha256 hash of the TBS certificate
+    //             let mut hasher = Sha256::new();
+    //             hasher.update(&tbs_certificate.to_der()?);
+    //             let digest = hasher.finalize();
+
+    //             // Verify the signature
+    //             verifying_key
+    //                 .verify(&digest, &Signature::try_from(signature)?)
+    //                 .map_err(|e| e.into())
+    //         }
+    //         // Add other signature algorithms as needed
+    //         _ => Err("Unsupported signature algorithm".into()),
+    //     }
+    // }
 
     /// Fetches the attestation document from the enclave endpoint.
     ///
@@ -134,8 +180,6 @@ impl AttestationVerifier {
             let cert2 = x509_cert::Certificate::from_der(&document.certificate).unwrap();
             let public_key2 = cert2.tbs_certificate.subject_public_key_info;
 
-            println!("public_key2:{:?}", public_key2.subject_public_key);
-
             let cert =   openssl::x509::X509::from_der(&document.certificate)
                 .map_err(|err| {
                     format!("AttestationVerifier::authenticate failed to parse document.certificate as X509 certificate:{:?}", err)
@@ -144,12 +188,18 @@ impl AttestationVerifier {
                 .map_err(|err| {
                     format!("AttestationVerifier::authenticate failed to extract public key from certificate:{:?}", err)
                 })?;
-            let pub_ec_key = public_key.ec_key().map_err(|err| {
+
+            println!("public_key2:{:?}", public_key2.algorithm);
+            println!("public_key2:{:?}", public_key2.subject_public_key);
+
+            let public_key_bytes = public_key.public_key_to_der().map_err(|err| {
                 format!(
-                    "AttestationVerifier::authenticate failed to get ec_key from public_key:{:?}",
+                    "AttestationVerifier::authenticate failed to convert public key to bytes:{:?}",
                     err
                 )
             })?;
+            println!("public_key_bytes:{:?}", public_key_bytes);
+
             let result = sig_structure.verify_signature::<aws_nitro_enclaves_cose::crypto::Openssl>(&public_key)
                 .map_err(|err| {
                     format!("AttestationVerifier::authenticate failed to verify signature on sig_structure:{:?}", err)
@@ -422,7 +472,6 @@ mod tests {
 
     #[test]
     fn test_authenticate_fail() {
-        let nonce = "0000000000000000000000000000000000000001";
         let attestation_verifier = AttestationVerifier::new(None, None);
 
         //try with invalid nonce (too short)
@@ -448,6 +497,7 @@ mod tests {
         );
 
         // Test with invalid root certificate
+        let nonce = "0000000000000000000000000000000000000001"; // valid nonce
         let invalid_root_cert = vec![0; 10]; // Invalid certificate
         let result = attestation_verifier.authenticate(Some(nonce), None, Some(invalid_root_cert));
 

@@ -19,3 +19,7 @@ base64 = "0.22.1"
 rustls-pemfile = { version = "2.1.2", features = ["std"] }
 reqwest = { version = "0.10.10", features = ["blocking"] }
 x509-cert = "0.2.5"
+rsa = "0.8.0"
+sha2 = "0.10.6"
+spki = "0.6.0"
+pem = "3.0.1"
