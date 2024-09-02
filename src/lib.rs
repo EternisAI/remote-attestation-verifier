@@ -212,9 +212,12 @@ impl AttestationVerifier {
                 })?;
 
             use aws_nitro_enclaves_cose::crypto::SigningPublicKey;
-            let key: &dyn SigningPublicKey = public_key.as_ref();
 
-            println!("hash type: {:?}", key.get_parameters().unwrap());
+            //let key: &dyn SigningPublicKey = public_key.as_ref();
+            //println!("signature algorithm: {:?}", key.get_parameters().unwrap());
+
+            println!("Public Key: {:?}", public_key.public_key_to_der().unwrap());
+            println!("Signature: {:?}", _signature);
 
             let result = sig_structure.verify_signature::<aws_nitro_enclaves_cose::crypto::Openssl>(&public_key)
                 .map_err(|err| {
