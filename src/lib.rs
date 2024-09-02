@@ -9,6 +9,7 @@
 //! See the `LICENSE.markdown` file in the repo for
 //! information on licensing and copyright.
 
+use aws_nitro_enclaves_cose::crypto::Hash;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use openssl::pkey::Public;
 use pem::{encode, EncodeConfig, Pem};
@@ -164,7 +165,6 @@ impl AttestationVerifier {
         //     let x509_cert = x509_cert::Certificate::from_der(&cert.0).unwrap();
         //     let issuer = x509_cert.tbs_certificate.issuer;
         //     let pubkey_info = x509_cert.tbs_certificate.subject_public_key_info;
-
         //     println!(
         //         "Subject: {:?}",
         //         x509_cert.tbs_certificate.subject.to_string()
@@ -210,6 +210,11 @@ impl AttestationVerifier {
                 .map_err(|err| {
                     format!("AttestationVerifier::authenticate failed to extract public key from certificate:{:?}", err)
                 })?;
+
+            use aws_nitro_enclaves_cose::crypto::SigningPublicKey;
+            let key: &dyn SigningPublicKey = public_key.as_ref();
+
+            println!("hash type: {:?}", key.get_parameters());
 
             let result = sig_structure.verify_signature::<aws_nitro_enclaves_cose::crypto::Openssl>(&public_key)
                 .map_err(|err| {
