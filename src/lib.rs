@@ -9,7 +9,9 @@
 //! See the `LICENSE.markdown` file in the repo for
 //! information on licensing and copyright.
 
+use base64::{engine::general_purpose::STANDARD, Engine};
 use openssl::pkey::Public;
+use pem::{encode, EncodeConfig, Pem};
 use reqwest;
 use std::collections::BTreeMap;
 use std::convert::TryInto;
@@ -112,6 +114,7 @@ impl AttestationVerifier {
     /// # Returns
     ///
     /// * `Result<Vec<u8>, String>` - A result containing the attestation document as a vector of bytes on success, or an error message on failure.
+
     pub fn authenticate(
         &self,
         nonce: Option<&str>,
@@ -132,6 +135,7 @@ impl AttestationVerifier {
 
         let (_protected, payload, _signature) = AttestationVerifier::parse(document_data)
             .map_err(|err| format!("AttestationVerifier::authenticate parse failed:{:?}", err))?;
+
         // Step 2. Exract the attestation document from the COSE_Sign1 structure
         let document = AttestationVerifier::parse_payload(&payload)
             .map_err(|err| format!("AttestationVerifier::authenticate failed:{:?}", err))?;
@@ -155,6 +159,27 @@ impl AttestationVerifier {
                 )
             })?;
 
+        // println!("find intermediates certs:{:?}", certs.len());
+        // for cert in &certs {
+        //     let x509_cert = x509_cert::Certificate::from_der(&cert.0).unwrap();
+        //     let issuer = x509_cert.tbs_certificate.issuer;
+        //     let pubkey_info = x509_cert.tbs_certificate.subject_public_key_info;
+
+        //     println!(
+        //         "Subject: {:?}",
+        //         x509_cert.tbs_certificate.subject.to_string()
+        //     );
+        //     println!(
+        //         "Public Key: {:?}",
+        //         pubkey_info.subject_public_key.as_bytes().unwrap()
+        //     );
+        //     let pem_certificate = format!(
+        //         "-----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----",
+        //         STANDARD.encode(&cert.0)
+        //     );
+        //     println!("{}\n==========================", pem_certificate);
+        // }
+
         let verifier = rustls::server::AllowAnyAuthenticatedClient::new(root_store);
         let _verified = verifier
             .verify_client_cert(
@@ -177,9 +202,6 @@ impl AttestationVerifier {
                     format!("AttestationVerifier::authenticate failed to load document_data as COSESign1 structure:{:?}", err)
                 })?;
 
-            let cert2 = x509_cert::Certificate::from_der(&document.certificate).unwrap();
-            let public_key2 = cert2.tbs_certificate.subject_public_key_info;
-
             let cert =   openssl::x509::X509::from_der(&document.certificate)
                 .map_err(|err| {
                     format!("AttestationVerifier::authenticate failed to parse document.certificate as X509 certificate:{:?}", err)
@@ -188,17 +210,6 @@ impl AttestationVerifier {
                 .map_err(|err| {
                     format!("AttestationVerifier::authenticate failed to extract public key from certificate:{:?}", err)
                 })?;
-
-            println!("public_key2:{:?}", public_key2.algorithm);
-            println!("public_key2:{:?}", public_key2.subject_public_key);
-
-            let public_key_bytes = public_key.public_key_to_der().map_err(|err| {
-                format!(
-                    "AttestationVerifier::authenticate failed to convert public key to bytes:{:?}",
-                    err
-                )
-            })?;
-            println!("public_key_bytes:{:?}", public_key_bytes);
 
             let result = sig_structure.verify_signature::<aws_nitro_enclaves_cose::crypto::Openssl>(&public_key)
                 .map_err(|err| {
