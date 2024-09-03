@@ -129,6 +129,8 @@ impl AttestationVerifier {
                 .fetch_attestation_document(nonce.unwrap_or(""))
                 .map_err(|err| format!("Failed to fetch attestation document: {:?}", err))?
         };
+        println!("{:?}", document_data);
+
         let root_cert = trusted_root_cert.unwrap_or(self.trusted_root_cert.clone());
 
         // Following the steps here: https://docs.aws.amazon.com/enclaves/latest/user/verify-root.html
@@ -213,8 +215,8 @@ impl AttestationVerifier {
 
             use aws_nitro_enclaves_cose::crypto::SigningPublicKey;
 
-            //let key: &dyn SigningPublicKey = public_key.as_ref();
-            //println!("signature algorithm: {:?}", key.get_parameters().unwrap());
+            let key: &dyn SigningPublicKey = public_key.as_ref();
+            println!("signature algorithm: {:?}", key.get_parameters().unwrap());
 
             println!("Public Key: {:?}", public_key.public_key_to_der().unwrap());
             println!("Signature: {:?}", _signature);
@@ -470,17 +472,31 @@ mod tests {
 
     #[test]
     fn test_authenticate() {
-        // From file
-        // let document_data = std::fs::read_to_string("src/example_attestation")
-        //     .expect("Failed to read example_attestation file");
-        // let document_data =
-        //     base64::decode(document_data.trim()).expect("Failed to decode base64 data");
-
         let nonce = "0000000000000000000000000000000000000001";
         let attestation_verifier = AttestationVerifier::new(None, None);
 
         // Test successful authentication
         let result = attestation_verifier.authenticate(Some(nonce), None, None);
+
+        println!("result:{:?}", result.as_ref().err());
+        assert!(
+            result.is_ok(),
+            "Authentication should succeed with valid data"
+        );
+    }
+
+    #[test]
+    fn test_authenticate_from_file() {
+        // From file
+        let document_data = std::fs::read_to_string("src/example_attestation")
+            .expect("Failed to read example_attestation file");
+        let document_data =
+            base64::decode(document_data.trim()).expect("Failed to decode base64 data");
+
+        let attestation_verifier = AttestationVerifier::new(None, None);
+
+        // Test successful authentication
+        let result = attestation_verifier.authenticate(None, Some(&document_data), None);
 
         println!("result:{:?}", result.as_ref().err());
         assert!(
