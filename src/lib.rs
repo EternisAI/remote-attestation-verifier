@@ -10,6 +10,7 @@
 //! information on licensing and copyright.
 
 use aws_nitro_enclaves_cose::crypto::Hash;
+use aws_nitro_enclaves_cose::sign::SigStructure;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use openssl::pkey::Public;
 use pem::{encode, EncodeConfig, Pem};
@@ -17,7 +18,6 @@ use reqwest;
 use std::collections::BTreeMap;
 use std::convert::TryInto;
 use x509_cert::{der::Decode, Certificate};
-
 const DEFAULT_ENCLAVE_ENDPOINT: &str = "https://tlsn.eternis.ai/enclave/attestation";
 const DEFAULT_ROOT_CERT_PATH: &str = "src/aws_root.pem";
 // The AWS Nitro Attestation Document.
@@ -129,7 +129,7 @@ impl AttestationVerifier {
                 .fetch_attestation_document(nonce.unwrap_or(""))
                 .map_err(|err| format!("Failed to fetch attestation document: {:?}", err))?
         };
-        println!("{:?}", document_data);
+        println!("{}", base64::encode(&document_data));
 
         let root_cert = trusted_root_cert.unwrap_or(self.trusted_root_cert.clone());
 
@@ -271,6 +271,27 @@ impl AttestationVerifier {
                 elements[3]
             ),
         };
+        //print sig_structure
+        let sig_structure = SigStructure::new_sign1(&protected, &payload).unwrap();
+        let sig_structure_bytes = sig_structure.as_bytes().map_err(|err| {
+            format!(
+                "AttestationVerifier::authenticate failed to serialize sig_structure to bytes:{:?}",
+                err
+            )
+        })?;
+
+        println!("sig_structure_bytes: {:?}", &sig_structure_bytes);
+
+        use openssl::hash::{hash, MessageDigest};
+        let struct_digest = hash(MessageDigest::sha384(), &sig_structure_bytes).map_err(|err| {
+            format!(
+                "AttestationVerifier::authenticate failed to hash sig_structure with sha384:{:?}",
+                err
+            )
+        })?;
+        println!("struct_digest: {:?}", &struct_digest);
+
+        //
         Ok((protected.to_vec(), payload.to_vec(), signature.to_vec()))
     }
 
