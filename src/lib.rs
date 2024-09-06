@@ -9,7 +9,7 @@
 //! See the `LICENSE.markdown` file in the repo for
 //! information on licensing and copyright.
 
-// #![no_std]
+//#![no_std]
 
 use aws_nitro_enclaves_cose::crypto::Hash;
 use aws_nitro_enclaves_cose::sign::SigStructure;
@@ -754,13 +754,21 @@ mod tests {
         let filler = [64, 89, 17, 95];
         let payload = payload;
 
-        let mut sign_structure = Vec::new();
-        sign_structure.extend_from_slice(&header);
-        sign_structure.extend_from_slice(&protected);
-        sign_structure.extend_from_slice(&filler);
-        sign_structure.extend_from_slice(&payload);
+        let sign_structure = [
+            header.as_ref(),
+            protected.as_ref(),
+            filler.as_ref(),
+            payload.as_ref(),
+        ]
+        .concat();
 
-        let sign_structure: Vec<u8> = sign_structure;
+        // let mut sign_structure = Vec::new();
+        // sign_structure.extend_from_slice(&header);
+        // sign_structure.extend_from_slice(&protected);
+        // sign_structure.extend_from_slice(&filler);
+        // sign_structure.extend_from_slice(&payload);
+
+        // let sign_structure: Vec<u8> = sign_structure;
         //println!("sign_structure: {:?}", sign_structure);
 
         //println!("pcrs: {:?}", document.pcrs);
