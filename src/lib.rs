@@ -2,12 +2,14 @@
 //!
 //! ## Authors
 //!
-//! The Veracruz Development Team.
+//! @asa93 for Eternis.AI
 //!
 //! ## Licensing and copyright notice
 //!
 //! See the `LICENSE.markdown` file in the repo for
 //! information on licensing and copyright.
+
+// #![no_std]
 
 use aws_nitro_enclaves_cose::crypto::Hash;
 use aws_nitro_enclaves_cose::sign::SigStructure;
@@ -712,12 +714,12 @@ mod tests {
             base64::decode(document_data.trim()).expect("Failed to decode base64 data");
 
         let (_protected, payload, _signature) = AttestationVerifier::parse(&document_data)
-            .map_err(|err| format!("AttestationVerifier::authenticate parse failed:{:?}", err))
+            .map_err(|err| "AttestationVerifier::authenticate parse failed")
             .unwrap();
 
         // Step 2. Exract the attestation document from the COSE_Sign1 structure
         let document = AttestationVerifier::parse_payload(&payload)
-            .map_err(|err| format!("AttestationVerifier::authenticate failed:{:?}", err))
+            .map_err(|err| "AttestationVerifier::authenticate failed")
             .unwrap();
 
         //@ok parse public key, convert from der to sec1 format
@@ -728,16 +730,17 @@ mod tests {
             .subject_public_key_info
             .to_der()
             .unwrap();
-        println!("public key der: {:?}", public_key.clone());
+
+        //println!("public key der: {:?}", public_key.clone());
         //sec1 doesnt comprise der headers
         let public_key = &public_key[public_key.len() - 97..];
-        println!("public key sec1: {:?}", hex::encode(public_key));
+        //println!("public key sec1: {:?}", hex::encode(public_key));
 
         //@ok public key valid
         let verifying_key = VerifyingKey::from_sec1_bytes(&public_key).expect("Invalid public key");
 
         //@ok signature valid
-        println!("signature: {:?}", _signature);
+        //println!("signature: {:?}", _signature);
 
         //let signature = Signature::from_bytes(&signature.).expect("Invalid signature");
         // Create a Signature object from the raw signature bytes
@@ -746,9 +749,9 @@ mod tests {
         //@ok parse sig_bytes from doc
 
         //correspond to Signature1D
-        let header = vec![132, 106, 83, 105, 103, 110, 97, 116, 117, 114, 101, 49, 68];
+        let header = [132, 106, 83, 105, 103, 110, 97, 116, 117, 114, 101, 49, 68];
         let protected = _protected;
-        let filler = vec![64, 89, 17, 95];
+        let filler = [64, 89, 17, 95];
         let payload = payload;
 
         let mut sign_structure = Vec::new();
@@ -760,14 +763,10 @@ mod tests {
         let sign_structure: Vec<u8> = sign_structure;
         //println!("sign_structure: {:?}", sign_structure);
 
+        //println!("pcrs: {:?}", document.pcrs);
         //@ok
         // Verify the signature
-        verifying_key
-            .verify(&sign_structure, &signature)
-            .unwrap_or_else(|e| {
-                println!("Signature verification failed: {}", e);
-                ()
-            });
+        verifying_key.verify(&sign_structure, &signature).unwrap();
 
         //assert!(result, "Signature verification failed");
     }
