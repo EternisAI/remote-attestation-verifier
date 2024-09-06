@@ -625,10 +625,10 @@ mod tests {
 
         // @note pubkey ok when verifying with chatgpt
         let verifying_key = signing_key.verifying_key();
-        println!(
-            "verifying_key: {:?}",
-            hex::encode(verifying_key.to_sec1_bytes())
-        );
+        // println!(
+        //     "verifying_key: {:?}",
+        //     hex::encode(verifying_key.to_sec1_bytes())
+        // );
         // Convert verifying_key to PEM format
         // let pem = pem::Pem::new("CERTIFICATE", verifying_key.to_sec1_bytes());
         // println!("pem: {:?}", pem);
@@ -674,10 +674,10 @@ mod tests {
         let pubkey = hex::decode(pubkey_string).expect("Failed to decode hex public key");
         let verifying_key = VerifyingKey::from_sec1_bytes(&pubkey).expect("Invalid public key");
         let encoded_point = verifying_key.to_encoded_point(false);
-        println!(
-            " public key: {:?}",
-            hex::encode(verifying_key.to_sec1_bytes())
-        );
+        // println!(
+        //     " public key: {:?}",
+        //     hex::encode(verifying_key.to_sec1_bytes())
+        // );
 
         //@ok working with this signature (103 bytes)
         // has to be in DER format

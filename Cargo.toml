@@ -7,7 +7,9 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serde_cbor = { version = "0.11" }
+serde_cbor = { version = "0.11.2", default-features = false, features = [
+    "alloc",
+] }
 serde = "1.0"
 rustls = { version = "0.20.4", features = ["dangerous_configuration"] }
 webpki = "0.22.0"
@@ -18,13 +20,12 @@ openssl = "0.10.31"
 base64 = "0.22.1"
 rustls-pemfile = { version = "2.1.2", features = ["std"] }
 reqwest = { version = "0.10.10", features = ["blocking"] }
-x509-cert = "0.2.5"
+x509-cert = { version = "0.2.5", default-features = false }
 rsa = "0.8.0"
 sha2 = "0.10.6"
 spki = "0.6.0"
 pem = "3.0.1"
-#serde_bytes = "0.11.15"
-p384 = { version = "0.13.0", features = [
+p384 = { version = "0.13.0", default-features = false, features = [
     "arithmetic",
     "ecdh",
     "ecdsa",
@@ -32,7 +33,7 @@ p384 = { version = "0.13.0", features = [
     "expose-field",
     "pkcs8",
     "sha384",
-] }
+] } #serde_bytes = "0.11.15"
 
 hex = "0.4.3"
 rand_core = { version = "0.6.4", features = ["getrandom"] }
