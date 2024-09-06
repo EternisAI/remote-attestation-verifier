@@ -721,11 +721,6 @@ mod tests {
             .unwrap();
 
         //@ok parse public key, convert from der to sec1 format
-        let cert =   openssl::x509::X509::from_der(&document.certificate)
-        .map_err(|err| {
-            format!("AttestationVerifier::authenticate failed to parse document.certificate as X509 certificate:{:?}", err)
-        }).unwrap();
-
         let cert = x509_cert::Certificate::from_der(&document.certificate).unwrap();
 
         let public_key = cert
@@ -748,16 +743,13 @@ mod tests {
         // Create a Signature object from the raw signature bytes
         let signature = Signature::from_slice(&_signature).expect("Invalid signature");
 
-        //@todo parse sig_bytes from doc
+        //@ok parse sig_bytes from doc
 
         //correspond to Signature1D
         let header = vec![132, 106, 83, 105, 103, 110, 97, 116, 117, 114, 101, 49, 68];
         let protected = _protected;
         let filler = vec![64, 89, 17, 95];
         let payload = payload;
-
-        println!("payload: {:?}", payload);
-        println!("protected: {:?}", protected);
 
         let mut sign_structure = Vec::new();
         sign_structure.extend_from_slice(&header);
@@ -766,9 +758,9 @@ mod tests {
         sign_structure.extend_from_slice(&payload);
 
         let sign_structure: Vec<u8> = sign_structure;
-        println!("sign_structure: {:?}", sign_structure);
+        //println!("sign_structure: {:?}", sign_structure);
 
-        //@bug
+        //@ok
         // Verify the signature
         verifying_key
             .verify(&sign_structure, &signature)
