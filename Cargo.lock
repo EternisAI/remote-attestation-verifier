@@ -860,7 +860,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nitro-enclave-attestation-document"
+name = "nitro-enclave-attestation-verifier"
 version = "0.1.0"
 dependencies = [
  "asn1_der",

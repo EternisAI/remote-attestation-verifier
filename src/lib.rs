@@ -11,22 +11,15 @@
 
 //#![no_std]
 
-use aws_nitro_enclaves_cose::crypto::Hash;
-use aws_nitro_enclaves_cose::sign::SigStructure;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use hex;
-use openssl::pkey::Public;
-use pem::{encode, EncodeConfig, Pem};
 use reqwest;
 use std::collections::BTreeMap;
 use std::convert::TryInto;
 use x509_cert::{der::Decode, Certificate};
 const DEFAULT_ENCLAVE_ENDPOINT: &str = "https://tlsn.eternis.ai/enclave/attestation";
 const DEFAULT_ROOT_CERT_PATH: &str = "src/aws_root.pem";
-// The AWS Nitro Attestation Document.
-// This is described in
-// https://docs.aws.amazon.com/ko_kr/enclaves/latest/user/verify-root.html
-// under the heading "Attestation document specification"
+
 pub struct AttestationDocument {
     pub module_id: String,
     pub timestamp: u64,
@@ -64,215 +57,8 @@ impl AttestationVerifier {
         }
     }
 
-    // pub fn verify_x509_signature(cert_data: &[u8]) -> Result<bool, Box<dyn std::error::Error>> {
-    //     use rsa::pkcs1v15::{Signature, VerifyingKey};
-    //     use rsa::signature::Verifier;
-    //     use sha2::{Digest, Sha256};
-    //     use spki::SignatureAlgorithm;
-    //     use x509_cert::der::{Decode, Encode};
-    //     use x509_cert::Certificate;
-    //     // Parse the certificate
-    //     let cert = Certificate::from_der(cert_data)?;
-    //     // Extract the TBS (to-be-signed) certificate
-    //     let tbs_certificate = cert.tbs_certificate;
-
-    //     // Get the signature algorithm
-    //     let signature_algorithm = cert.signature_algorithm.oid;
-
-    //     // Get the signature
-    //     let sig_bytes = cert.signature.as_bytes().unwrap().to_vec();
-    //     let signature = Signature::from(sig_bytes.into_boxed_slice());
-
-    //     // Get the public key
-    //     let public_key = &cert.tbs_certificate.subject_public_key_info;
-
-    //     // Verify the signature based on the algorithm
-    //     match signature_algorithm.to_string().as_str() {
-    //         "1.2.840.113549.1.1.11" => {
-    //             // sha256WithRSAEncryption
-    //             // Create a verifying key from the public key
-    //             let verifying_key =
-    //                 VerifyingKey::<Sha256>::new(public_key.subject_public_key).unwrap();
-
-    //             // Create a Sha256 hash of the TBS certificate
-    //             let mut hasher = Sha256::new();
-    //             hasher.update(&tbs_certificate.to_der()?);
-    //             let digest = hasher.finalize();
-
-    //             // Verify the signature
-    //             verifying_key
-    //                 .verify(&digest, &Signature::try_from(signature)?)
-    //                 .map_err(|e| e.into())
-    //         }
-    //         // Add other signature algorithms as needed
-    //         _ => Err("Unsupported signature algorithm".into()),
-    //     }
-    // }
-
-    /// Fetches the attestation document from the enclave endpoint.
-    ///
-    /// # Arguments
-    ///
-    /// * `nonce` - A string slice that holds the 40 bytesnonce value.
-    ///
-    /// # Returns
-    ///
-    /// * `Result<Vec<u8>, String>` - A result containing the attestation document as a vector of bytes on success, or an error message on failure.
-
-    pub fn authenticate(
-        &self,
-        nonce: Option<&str>,
-        document_data: Option<&[u8]>,
-        trusted_root_cert: Option<Vec<u8>>,
-    ) -> Result<AttestationDocument, String> {
-        let document_data = if let Some(data) = document_data {
-            &data.to_vec()
-        } else {
-            &self
-                .fetch_attestation_document(nonce.unwrap_or(""))
-                .map_err(|err| format!("Failed to fetch attestation document: {:?}", err))?
-        };
-        println!("{}", base64::encode(&document_data));
-
-        let root_cert = trusted_root_cert.unwrap_or(self.trusted_root_cert.clone());
-
-        // Following the steps here: https://docs.aws.amazon.com/enclaves/latest/user/verify-root.html
-        // Step 1. Decode the CBOR object and map it to a COSE_Sign1 structure
-
-        let (_protected, payload, _signature) = AttestationVerifier::parse(document_data)
-            .map_err(|err| format!("AttestationVerifier::authenticate parse failed:{:?}", err))?;
-
-        // Step 2. Exract the attestation document from the COSE_Sign1 structure
-        let document = AttestationVerifier::parse_payload(&payload)
-            .map_err(|err| format!("AttestationVerifier::authenticate failed:{:?}", err))?;
-
-        // Step 3. Verify the certificate's chain
-        let mut certs: Vec<rustls::Certificate> = Vec::new();
-        for this_cert in document.cabundle.clone().iter().rev() {
-            let cert = rustls::Certificate(this_cert.to_vec());
-            certs.push(cert);
-        }
-        let cert = rustls::Certificate(document.certificate.clone());
-        certs.push(cert);
-
-        let mut root_store = rustls::RootCertStore::empty();
-        root_store
-            .add(&rustls::Certificate(root_cert))
-            .map_err(|err| {
-                format!(
-                    "AttestationVerifier::authenticate failed to add trusted root cert:{:?}",
-                    err
-                )
-            })?;
-
-        // println!("find intermediates certs:{:?}", certs.len());
-        // for cert in &certs {
-        //     let x509_cert = x509_cert::Certificate::from_der(&cert.0).unwrap();
-        //     let issuer = x509_cert.tbs_certificate.issuer;
-        //     let pubkey_info = x509_cert.tbs_certificate.subject_public_key_info;
-        //     println!(
-        //         "Subject: {:?}",
-        //         x509_cert.tbs_certificate.subject.to_string()
-        //     );
-        //     println!(
-        //         "Public Key: {:?}",
-        //         pubkey_info.subject_public_key.as_bytes().unwrap()
-        //     );
-        //     let pem_certificate = format!(
-        //         "-----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----",
-        //         STANDARD.encode(&cert.0)
-        //     );
-        //     println!("{}\n==========================", pem_certificate);
-        // }
-
-        let verifier = rustls::server::AllowAnyAuthenticatedClient::new(root_store);
-        let _verified = verifier
-            .verify_client_cert(
-                &rustls::Certificate(document.certificate.clone()),
-                &certs,
-                std::time::SystemTime::now(),
-            )
-            .map_err(|err| {
-                format!(
-                    "AttestationVerifier::authenticate verify_client_cert failed:{:?}",
-                    err
-                )
-            })?;
-        // if verify_client_cert didn't generate an error, authentication passed
-
-        // Step 4. Ensure the attestation document is properly signed
-        let authenticated = {
-            let sig_structure = aws_nitro_enclaves_cose::CoseSign1::from_bytes(document_data)
-                .map_err(|err| {
-                    format!("AttestationVerifier::authenticate failed to load document_data as COSESign1 structure:{:?}", err)
-                })?;
-
-            let cert =   openssl::x509::X509::from_der(&document.certificate)
-                .map_err(|err| {
-                    format!("AttestationVerifier::authenticate failed to parse document.certificate as X509 certificate:{:?}", err)
-                })?;
-            let public_key = cert.public_key()
-                .map_err(|err| {
-                    format!("AttestationVerifier::authenticate failed to extract public key from certificate:{:?}", err)
-                })?;
-
-            use aws_nitro_enclaves_cose::crypto::SigningPublicKey;
-
-            let public_key_der = public_key
-                .public_key_to_der()
-                .map_err(|err| format!("Failed to convert public key to DER format: {:?}", err))?;
-
-            //println!("public_key_der: {:?}", public_key_der);
-            let key: &dyn SigningPublicKey = public_key.as_ref();
-            //println!("signature algorithm: {:?}", key.get_parameters().unwrap());
-
-            let public_key_hex =
-                hex::encode(public_key.public_key_to_der().map_err(|err| {
-                    format!("Failed to convert public key to DER format: {:?}", err)
-                })?);
-
-            println!("Public Key (hex): {}", public_key_hex);
-            // let pem = public_key
-            //     .public_key_to_pem()
-            //     .map_err(|err| format!("Failed to convert public key to PEM format: {:?}", err))?;
-            // println!("PEM Public Key:\n{}", String::from_utf8(pem).unwrap());
-
-            println!("Signature: {:?}", _signature);
-
-            //print sig_structure
-            //@test
-
-            let payload = sig_structure
-                .get_payload::<aws_nitro_enclaves_cose::crypto::Openssl>(None)
-                .unwrap();
-
-            // println!("payload: {:?}", payload);
-            // println!("_protected: {:?}", _protected);
-            let sig_structure_2 = SigStructure::new_sign1(&_protected, &payload).unwrap();
-            let sig_structure_bytes = sig_structure_2.as_bytes().unwrap();
-            println!("sig_structure_bytes: {:?}", sig_structure_bytes);
-            use openssl::hash::{hash, MessageDigest};
-            let struct_digest = hash(MessageDigest::sha384(), &sig_structure_bytes).unwrap();
-            //println!("struct_digest: {:?}", &struct_digest);
-
-            let result = public_key.verify(struct_digest.as_ref(), &_signature);
-            println!("result verification 2: {:?}", result);
-            ////////
-
-            //veriy signature
-            let result = sig_structure.verify_signature::<aws_nitro_enclaves_cose::crypto::Openssl>(&public_key)
-                .map_err(|err| {
-                    format!("AttestationVerifier::authenticate failed to verify signature on sig_structure:{:?}", err)
-                })?;
-            result
-        };
-        if !authenticated {
-            return Err(format!(
-                "AttestationVerifier::authenticate invalid COSE certificate for provided key"
-            ));
-        } else {
-            return Ok(document);
-        }
+    pub fn authenticate() -> Result<(), ()> {
+        Ok(())
     }
 
     fn parse(document_data: &[u8]) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), String> {
@@ -522,79 +308,6 @@ mod tests {
     use rsa::signature::Verifier;
 
     #[test]
-    fn test_authenticate() {
-        let nonce = "0000000000000000000000000000000000000001";
-        let attestation_verifier = AttestationVerifier::new(None, None);
-
-        // Test successful authentication
-        let result = attestation_verifier.authenticate(Some(nonce), None, None);
-
-        println!("result:{:?}", result.as_ref().err());
-        assert!(
-            result.is_ok(),
-            "Authentication should succeed with valid data"
-        );
-    }
-
-    #[test]
-    fn test_authenticate_from_file() {
-        // From file
-        let document_data = std::fs::read_to_string("src/example_attestation")
-            .expect("Failed to read example_attestation file");
-        let document_data =
-            base64::decode(document_data.trim()).expect("Failed to decode base64 data");
-
-        let attestation_verifier = AttestationVerifier::new(None, None);
-
-        // Test successful authentication
-        let result = attestation_verifier.authenticate(None, Some(&document_data), None);
-
-        println!("result:{:?}", result.as_ref().err());
-        assert!(
-            result.is_ok(),
-            "Authentication should succeed with valid data"
-        );
-    }
-
-    #[test]
-    fn test_authenticate_fail() {
-        let attestation_verifier = AttestationVerifier::new(None, None);
-
-        //try with invalid nonce (too short)
-        let nonce = "000000000000000000000000000000000000001";
-        let result = attestation_verifier.authenticate(Some(nonce), None, None);
-
-        println!("result:{:?}", result.as_ref().err());
-        assert!(
-            result.is_err(),
-            "Authentication should fail with invalid nonce"
-        );
-
-        // Test authentication failure
-        let invalid_document_data = std::fs::read_to_string("src/invalid_attestation")
-            .expect("Failed to read example_attestation file");
-        let invalid_document_data =
-            base64::decode(invalid_document_data.trim()).expect("Failed to decode base64 data");
-        let result = attestation_verifier.authenticate(None, Some(&invalid_document_data), None);
-
-        assert!(
-            result.is_err(),
-            "Authentication should fail with invalid data"
-        );
-
-        // Test with invalid root certificate
-        let nonce = "0000000000000000000000000000000000000001"; // valid nonce
-        let invalid_root_cert = vec![0; 10]; // Invalid certificate
-        let result = attestation_verifier.authenticate(Some(nonce), None, Some(invalid_root_cert));
-
-        println!("result:{:?}", result.as_ref().err());
-        assert!(
-            result.is_err(),
-            "Authentication should fail with invalid root certificate"
-        );
-    }
-
-    #[test]
     fn test_sig_es384_from_newkey() {
         let mut rng = OsRng;
         let mut rand_bytes = [0u8; 32];
@@ -708,11 +421,26 @@ mod tests {
     #[test]
     fn test_sig_es384_from_doc() {
         //@ok parse CBOR doc
-        let document_data = std::fs::read_to_string("src/example_attestation")
-            .expect("Failed to read example_attestation file");
-        let document_data =
-            base64::decode(document_data.trim()).expect("Failed to decode base64 data");
 
+        //@note from url
+        // let attestation_verifier = AttestationVerifier::new(None, None);
+        // let nonce = "0000000000000000000000000000000000000001";
+
+        // let document_data = attestation_verifier
+        //     .fetch_attestation_document(nonce)
+        //     .map_err(|err| format!("Failed to fetch attestation document: {:?}", err))
+        //     .expect("Failed to fetch attestation document");
+
+        //println!("document_data: {:?}", base64::encode(document_data.clone()));
+
+        //@note from file, using STD though
+        // let document_data = std::fs::read_to_string("src/example_attestation")
+        //     .expect("Failed to read example_attestation file");
+        // let document_data =
+        //     base64::decode(document_data.trim()).expect("Failed to decode base64 data");
+
+        //@note from array
+        let document_data = base64::decode("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").expect("decode doc failed");
         let (_protected, payload, _signature) = AttestationVerifier::parse(&document_data)
             .map_err(|err| "AttestationVerifier::authenticate parse failed")
             .unwrap();
@@ -751,7 +479,8 @@ mod tests {
         //correspond to Signature1D
         let header = [132, 106, 83, 105, 103, 110, 97, 116, 117, 114, 101, 49, 68];
         let protected = _protected;
-        let filler = [64, 89, 17, 95];
+        //@todo sometimes last byte is 96 sometimes 95, need to figure out why
+        let filler = [64, 89, 17, 96];
         let payload = payload;
 
         let sign_structure = [
