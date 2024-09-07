@@ -33,7 +33,7 @@ pub mod aws_attestation {
         _certificate: &[u8; 640],
     ) -> Result<(), p384::ecdsa::Error> {
         //@ok parse public key, convert from der to sec1 format
-        let cert = x509_cert::Certificate::from_der(_certificate).unwrap();
+        let cert = x509_cert::Certificate::from_der(_certificate).expect("decode x509 cert failed");
 
         let public_key = cert
             .tbs_certificate
