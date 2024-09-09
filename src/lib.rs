@@ -9,7 +9,7 @@
 //! See the `LICENSE.markdown` file in the repo for
 //! information on licensing and copyright.
 #![no_std]
-pub mod aws_attestation {
+pub mod remote_attestation_verifier {
     use base64::{engine::general_purpose::STANDARD, Engine};
     use core::convert::TryInto;
     use p384::ecdsa::{Signature, SigningKey, VerifyingKey};
