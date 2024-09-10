@@ -12,7 +12,7 @@
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use core::convert::TryInto;
-use p384::ecdsa::{Signature, SigningKey, VerifyingKey};
+use p384::ecdsa::{Signature, VerifyingKey};
 use rsa::signature::Verifier;
 use x509_cert::der::Decode;
 use x509_cert::der::Encode;
@@ -24,9 +24,6 @@ pub struct AttestationDocument {
     signature: [u8; 96],
     certificate: [u8; 640],
 }
-
-const DEFAULT_ENCLAVE_ENDPOINT: &str = "https://tlsn.eternis.ai/enclave/attestation";
-const DEFAULT_ROOT_CERT_PATH: &str = "src/aws_root.pem";
 
 pub fn verify(
     _protected: &[u8; 4],
