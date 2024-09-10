@@ -18,7 +18,7 @@ use x509_cert::der::Decode;
 use x509_cert::der::Encode;
 
 #[derive(Debug)]
-struct AttestationDocument {
+pub struct AttestationDocument {
     protected: [u8; 4],
     payload: [u8; 4448],
     signature: [u8; 96],
