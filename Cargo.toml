@@ -1,5 +1,5 @@
 [package]
-name = "nitro-enclave-attestation-verifier"
+name = "remote-attestation-verifier"
 version = "0.1.0"
 authors = ["asa93"]
 edition = "2018"
