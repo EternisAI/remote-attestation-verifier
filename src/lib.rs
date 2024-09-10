@@ -20,8 +20,8 @@ use x509_cert::der::Encode;
 #[derive(Debug)]
 pub struct AttestationDocument {
     pub protected: [u8; 4],
-    pub payload: [u8; 4448],
     pub signature: [u8; 96],
+    pub payload: [u8; 4448],
     pub certificate: [u8; 640],
 }
 
