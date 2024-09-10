@@ -13,13 +13,9 @@ pub mod remote_attestation_verifier {
     use base64::{engine::general_purpose::STANDARD, Engine};
     use core::convert::TryInto;
     use p384::ecdsa::{Signature, SigningKey, VerifyingKey};
-    use rand_core::RngCore;
-    use rsa::signature::SignerMut;
     use rsa::signature::Verifier;
-    // use std::collections::BTreeMap;
-    // use std::io::Read;
+    use x509_cert::der::Decode;
     use x509_cert::der::Encode;
-    use x509_cert::{der::Decode, Certificate};
 
     #[derive(Debug)]
     struct AttestationDocument {
