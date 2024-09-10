@@ -76,6 +76,8 @@ pub mod remote_attestation_verifier {
         verifying_key.verify(&sign_structure, &signature)
     }
 
+    //@bug doesn't work consistenty because no_std expect fixed size arrays but
+    // remote attestation is of variable size
     fn parse_cbor_document(document: &[u8]) -> Result<AttestationDocument, ()> {
         use serde_cbor;
         let document: serde_cbor::Value = serde_cbor::from_slice(&document).expect("");
