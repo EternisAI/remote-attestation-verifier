@@ -125,7 +125,7 @@ pub fn parse_cbor_document(document: &[u8]) -> Result<AttestationDocument, ()> {
 
     //println!("certificate: {:?}", certificate);
 
-    let certifcate_bytes: [u8; 643] = serde_cbor::to_vec(&certificate)
+    let certiricate_bytes: [u8; 643] = serde_cbor::to_vec(&certificate)
         .expect("failed to parse certificate")
         .try_into()
         .expect("error slice certificate");
@@ -142,7 +142,7 @@ pub fn parse_cbor_document(document: &[u8]) -> Result<AttestationDocument, ()> {
         signature: signature_bytes[2..]
             .try_into()
             .expect("signature slice with incorrect length"),
-        certificate: certifcate_bytes[3..]
+        certificate: certiricate_bytes[3..]
             .try_into()
             .expect("certificate slice with incorrect length"),
     })
