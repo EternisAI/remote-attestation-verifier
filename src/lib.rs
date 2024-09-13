@@ -89,12 +89,12 @@ pub fn verify(
 
     let x509_signature = Signature::from_slice(&x509_signature).expect("Invalid x509 signature");
 
-    //TODO: convert certificate to bytes
-    let mut cert_vec = vec![];
+    //NOTE: certificate is in DER format
+    let mut sig_structure_x509 = vec![];
     cert.tbs_certificate
-        .encode_to_vec(&mut cert_vec)
+        .encode_to_vec(&mut sig_structure_x509)
         .expect("cert to der failed");
-    println!("sig_structure_x509: {:?}", cert_vec);
+    println!("sig_structure_x509: {:?}", sig_structure_x509);
 
     // let mut sig_structure_x509_with_prefix = vec![48, 130, 2, 123];
     // sig_structure_x509_with_prefix.extend_from_slice(&sig_structure_x509);
@@ -102,7 +102,7 @@ pub fn verify(
 
     //BUG:  verify fails here, one of 3 values must be wrong
     issuer_public_key
-        .verify(&cert_vec, &x509_signature)
+        .verify(&sig_structure_x509, &x509_signature)
         .expect("verify x509 cert failed");
 
     //////////////////////////////////////////////////////////////////////////////
@@ -113,23 +113,21 @@ pub fn verify(
     let x509_cert =
         openssl::x509::X509::from_der(_certificate).expect("Failed to parse certificate");
 
-    println!("subject: {:?}", x509_cert.subject_name());
-    println!("issuer: {:?}", x509_cert.issuer_name());
+    //println!("subject: {:?}", x509_cert.subject_name());
+    //println!("issuer: {:?}", x509_cert.issuer_name());
 
     let tbs_cert = x509_cert
         .to_der()
         .expect("Failed to get TBS certificate raw bytes");
 
     let pub_key = x509_cert.public_key().expect("Failed to get public key");
-    println!("subject public key: {:?}", pub_key);
+    //println!("subject public key: {:?}", pub_key);
     println!("x509 signature: {:?}", x509_cert.signature().as_slice());
     println!("sig_structure_x509: {:?}", tbs_cert);
 
     ///// get public key from issuer_cert
     let issuer_cert =
         openssl::x509::X509::from_der(&issuer_der).expect("Failed to parse issuer PEM");
-    let pub_key = issuer_cert.public_key().expect("Failed to get public key");
-    println!("issuer public key: {:?}", pub_key);
 
     use base64::encode;
 
