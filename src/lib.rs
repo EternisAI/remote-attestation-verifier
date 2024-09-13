@@ -33,12 +33,12 @@ pub fn verify(
     _payload: &[u8],
     _certificate: &[u8],
 ) -> Result<(), p384::ecdsa::Error> {
-    //@ok parse public key, convert from der to sec1 format
+    //OK: parse public key, convert from der to sec1 format
     let cert = x509_cert::Certificate::from_der(_certificate).expect("decode x509 cert failed");
 
     //////////////////////////////////////////////////////////////////////////////
     //1. verify x509 cert signature using x509_cert crate
-    //@ok algorithm is ECDSA using SHA384
+    //OK: algorithm is ECDSA using SHA384
     // println!("signature_algorithm: {:?}", cert.signature_algorithm);
     //println!("subject_public_key_info: {:?}", cert.tbs_certificate.issuer);
     //TODO: next step: extract issuer signature cabundle object iof hardcoded
@@ -62,13 +62,13 @@ pub fn verify(
     // println!("cert name {:?}", cert.tbs_certificate.subject.to_string());
     // println!("cert algorithm: {:?}", cert.signature_algorithm);
 
-    //@test print to PEM for testing in web decoder
+    //TEST: print to PEM for testing in web decoder
     let cert_base64 = encode(&issuer_der);
     println!(
         "-----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----",
         cert_base64
     );
-    //@ok
+    //OK:
     let issuer_public_key = &issuer_public_key[issuer_public_key.len() - 97..];
 
     let issuer_public_key =
@@ -144,13 +144,13 @@ pub fn verify(
     let public_key = &public_key[public_key.len() - 97..];
     //println!("cert public key {:?}", public_key);
 
-    //@ok public key valid
+    //OK: public key valid
     let verifying_key = VerifyingKey::from_sec1_bytes(&public_key).expect("Invalid public key");
 
     // Create a Signature object from the raw signature bytes
     let signature = Signature::from_slice(_signature).expect("Invalid signature");
 
-    //@ok construct cosign structure
+    //OK: construct cosign structure
     const HEADER: [u8; 13] = [132, 106, 83, 105, 103, 110, 97, 116, 117, 114, 101, 49, 68];
     let protected = _protected;
 
@@ -171,7 +171,7 @@ pub fn verify(
 
     //println!("sign_structure: {:?}", sign_structure);
     //println!("pcrs: {:?}", document.pcrs);
-    //@ok
+    //OK:
     // Verify the signature
     verifying_key.verify(&sign_structure, &signature)
 }
@@ -501,7 +501,7 @@ mod tests {
 
     // #[test]
     // fn test_std() {
-    //     //@ok parse CBOR doc
+    //     //OK: parse CBOR doc
     //     //@note from url
     //     // let attestation_verifier = AttestationVerifier::new(None, None);
     //     // let nonce = "0000000000000000000000000000000000000001";
@@ -525,7 +525,7 @@ mod tests {
     //     // Step 2. Exract the attestation document from the COSE_Sign1 structure
     //     let document =
     //         parse_payload(&payload).expect("AttestationVerifier::authenticate failed");
-    //     //@ok parse public key, convert from der to sec1 format
+    //     //OK: parse public key, convert from der to sec1 format
     //     let cert = x509_cert::Certificate::from_der(&document.certificate).unwrap();
     //     let public_key = cert
     //         .tbs_certificate
@@ -536,15 +536,15 @@ mod tests {
     //     //sec1 doesnt comprise der headers
     //     let public_key = &public_key[public_key.len() - 97..];
     //     //println!("public key sec1: {:?}", hex::encode(public_key));
-    //     //@ok public key valid
+    //     //OK: public key valid
     //     let verifying_key =
     //         VerifyingKey::from_sec1_bytes(&public_key).expect("Invalid public key");
-    //     //@ok signature valid
+    //     //OK: signature valid
     //     //println!("signature: {:?}", _signature);
     //     //let signature = Signature::from_bytes(&signature.).expect("Invalid signature");
     //     // Create a Signature object from the raw signature bytes
     //     let signature = Signature::from_slice(&_signature).expect("Invalid signature");
-    //     //@ok parse sig_bytes from doc
+    //     //OK: parse sig_bytes from doc
     //     //correspond to Signature1D
     //     let header = [132, 106, 83, 105, 103, 110, 97, 116, 117, 114, 101, 49, 68];
     //     let protected = _protected;
@@ -559,7 +559,7 @@ mod tests {
     //     ]
     //     .concat();
     //     //println!("pcrs: {:?}", document.pcrs);
-    //     //@ok
+    //     //OK:
     //     // Verify the signature
     //     verifying_key
     //         .verify(&sign_structure, &signature)
