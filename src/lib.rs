@@ -41,8 +41,8 @@ pub fn verify(
     //@ok algorithm is ECDSA using SHA384
     // println!("signature_algorithm: {:?}", cert.signature_algorithm);
     //println!("subject_public_key_info: {:?}", cert.tbs_certificate.issuer);
-    //@todo next step: extract issuer signature cabundle object iof hardcoded
-    //@todo panic if algorithm is not expected
+    //TODO: next step: extract issuer signature cabundle object iof hardcoded
+    //TODO: panic if algorithm is not expected
 
     let issuer_pem = "MIICvzCCAkSgAwIBAgIUXfCzGrCNSNDTS+L1DQQA9CBMKNwwCgYIKoZIzj0EAwMwgYkxPDA6BgNVBAMMM2Y3NWZiMzQ0NzZhOTJhODcuem9uYWwudXMtZWFzdC0xLmF3cy5uaXRyby1lbmNsYXZlczEMMAoGA1UECwwDQVdTMQ8wDQYDVQQKDAZBbWF6b24xCzAJBgNVBAYTAlVTMQswCQYDVQQIDAJXQTEQMA4GA1UEBwwHU2VhdHRsZTAeFw0yNDA5MTMxNDIzNTBaFw0yNDA5MTQxNDIzNTBaMIGOMQswCQYDVQQGEwJVUzETMBEGA1UECAwKV2FzaGluZ3RvbjEQMA4GA1UEBwwHU2VhdHRsZTEPMA0GA1UECgwGQW1hem9uMQwwCgYDVQQLDANBV1MxOTA3BgNVBAMMMGktMGJiZjFiZmUyMzJiOGMyY2UudXMtZWFzdC0xLmF3cy5uaXRyby1lbmNsYXZlczB2MBAGByqGSM49AgEGBSuBBAAiA2IABF7SGcHdkRbzl/tGMXHBgJ88sy+HTekW+lomScVSEXYB1giAC6eQgElex/q78JTxuj/k7BV83GfjKE5BS5Bdlohfb3b/yA52MLQubQGAYLSZhBGZmRBaEleTF6r0381CgqNmMGQwEgYDVR0TAQH/BAgwBgEB/wIBADAOBgNVHQ8BAf8EBAMCAgQwHQYDVR0OBBYEFBvZFAgI1uf1KLtxVdsv0Zeh+HFMMB8GA1UdIwQYMBaAFFRGyCn8tZshs/IN+qolNuLZ48fmMAoGCCqGSM49BAMDA2kAMGYCMQDWFeTovh3hlMUu+/nEXCCTKs/0NftxY2s+BXSNFUki8V+LAYNeARuv2FpWHIWR9EECMQCNqJQe507gy1zFEy6loraps1Ohbz9rVETmbRvqekvcYb0KCq9uJMeKaWzgnWWD0wI=";
     let issuer_der = STANDARD.decode(issuer_pem).expect("Failed to decode PEM");
@@ -75,7 +75,7 @@ pub fn verify(
         VerifyingKey::from_sec1_bytes(&issuer_public_key).expect("Invalid public key");
 
     println!("issuer public key sec1 {:?}", issuer_public_key);
-    //@todo should be issuer sig & issuer sig_structure
+    //TODO: should be issuer sig & issuer sig_structure
     let x509_signature = cert.signature.raw_bytes();
 
     //remove DER header
@@ -87,7 +87,7 @@ pub fn verify(
 
     let x509_signature = Signature::from_slice(&x509_signature).expect("Invalid x509 signature");
 
-    //@todo convert certificate to bytes
+    //TODO: convert certificate to bytes
     let mut cert_vec = vec![];
     cert.tbs_certificate
         .encode_to_vec(&mut cert_vec)
@@ -98,13 +98,13 @@ pub fn verify(
     // sig_structure_x509_with_prefix.extend_from_slice(&sig_structure_x509);
     // let sig_structure_x509 = sig_structure_x509_with_prefix;
 
-    //@bug verify fails here
+    //BUG:  verify fails here
     issuer_public_key
         .verify(&cert_vec, &x509_signature)
         .expect("verify x509 cert failed");
 
     //////////////////////////////////////////////////////////////////////////////
-    /////@test using OPENSSL to see if we get the same parameters
+    /////TEST: using OPENSSL to see if we get the same parameters
 
     ///// get signature & sig_structure from cert
     println!("---------------------------------------\n using openssl");
@@ -176,7 +176,7 @@ pub fn verify(
     verifying_key.verify(&sign_structure, &signature)
 }
 
-//@bug doesn't work consistenty because no_std expect fixed size arrays but
+//BUG: doesn't work consistenty because no_std expect fixed size arrays but
 // remote attestation is of variable size
 pub fn parse_cbor_document(document: &[u8]) -> Result<AttestationDocument, ()> {
     use serde_cbor;
@@ -548,7 +548,7 @@ mod tests {
     //     //correspond to Signature1D
     //     let header = [132, 106, 83, 105, 103, 110, 97, 116, 117, 114, 101, 49, 68];
     //     let protected = _protected;
-    //     //@todo sometimes last byte is 96 sometimes 95, need to figure out why
+    //     //TODO: sometimes last byte is 96 sometimes 95, need to figure out why
     //     let filler = [64, 89, 17, 96];
     //     let payload = payload;
     //     let sign_structure = [
