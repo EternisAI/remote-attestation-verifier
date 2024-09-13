@@ -9,15 +9,16 @@
 //! See the `LICENSE.markdown` file in the repo for
 //! information on licensing and copyright.
 
-#![no_std]
+//#![no_std]
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use core::convert::TryInto;
 use p384::ecdsa::{Signature, VerifyingKey};
 use rsa::signature::Verifier;
+use x509_cert::der;
 use x509_cert::der::Decode;
 use x509_cert::der::Encode;
-
+use x509_cert::Certificate;
 #[derive(Debug)]
 pub struct AttestationDocument {
     pub protected: [u8; 4],
@@ -35,16 +36,113 @@ pub fn verify(
     //@ok parse public key, convert from der to sec1 format
     let cert = x509_cert::Certificate::from_der(_certificate).expect("decode x509 cert failed");
 
+    //////////////////////////////////////////////////////////////////////////////
+    //1. verify x509 cert signature using x509_cert crate
+    //@ok algorithm is ECDSA using SHA384
+    // println!("signature_algorithm: {:?}", cert.signature_algorithm);
+    //println!("subject_public_key_info: {:?}", cert.tbs_certificate.issuer);
+    //@todo next step: extract issuer signature cabundle object iof hardcoded
+    //@todo panic if algorithm is not expected
+
+    let issuer_pem = "MIICvzCCAkSgAwIBAgIUXfCzGrCNSNDTS+L1DQQA9CBMKNwwCgYIKoZIzj0EAwMwgYkxPDA6BgNVBAMMM2Y3NWZiMzQ0NzZhOTJhODcuem9uYWwudXMtZWFzdC0xLmF3cy5uaXRyby1lbmNsYXZlczEMMAoGA1UECwwDQVdTMQ8wDQYDVQQKDAZBbWF6b24xCzAJBgNVBAYTAlVTMQswCQYDVQQIDAJXQTEQMA4GA1UEBwwHU2VhdHRsZTAeFw0yNDA5MTMxNDIzNTBaFw0yNDA5MTQxNDIzNTBaMIGOMQswCQYDVQQGEwJVUzETMBEGA1UECAwKV2FzaGluZ3RvbjEQMA4GA1UEBwwHU2VhdHRsZTEPMA0GA1UECgwGQW1hem9uMQwwCgYDVQQLDANBV1MxOTA3BgNVBAMMMGktMGJiZjFiZmUyMzJiOGMyY2UudXMtZWFzdC0xLmF3cy5uaXRyby1lbmNsYXZlczB2MBAGByqGSM49AgEGBSuBBAAiA2IABF7SGcHdkRbzl/tGMXHBgJ88sy+HTekW+lomScVSEXYB1giAC6eQgElex/q78JTxuj/k7BV83GfjKE5BS5Bdlohfb3b/yA52MLQubQGAYLSZhBGZmRBaEleTF6r0381CgqNmMGQwEgYDVR0TAQH/BAgwBgEB/wIBADAOBgNVHQ8BAf8EBAMCAgQwHQYDVR0OBBYEFBvZFAgI1uf1KLtxVdsv0Zeh+HFMMB8GA1UdIwQYMBaAFFRGyCn8tZshs/IN+qolNuLZ48fmMAoGCCqGSM49BAMDA2kAMGYCMQDWFeTovh3hlMUu+/nEXCCTKs/0NftxY2s+BXSNFUki8V+LAYNeARuv2FpWHIWR9EECMQCNqJQe507gy1zFEy6loraps1Ohbz9rVETmbRvqekvcYb0KCq9uJMeKaWzgnWWD0wI=";
+    let issuer_der = STANDARD.decode(issuer_pem).expect("Failed to decode PEM");
+    let issuer_cert =
+        x509_cert::Certificate::from_der(&issuer_der).expect("decode x509 cert failed");
+
+    let issuer_public_key = issuer_cert
+        .tbs_certificate
+        .subject_public_key_info
+        .to_der()
+        .expect("issuer public key der failed");
+
+    // println!(
+    //     "issuer name {:?}",
+    //     issuer_cert.tbs_certificate.subject.to_string()
+    // );
+    // println!("cert name {:?}", cert.tbs_certificate.subject.to_string());
+    // println!("cert algorithm: {:?}", cert.signature_algorithm);
+
+    //@test print to PEM for testing in web decoder
+    let cert_base64 = encode(&issuer_der);
+    println!(
+        "-----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----",
+        cert_base64
+    );
+    //@ok
+    let issuer_public_key = &issuer_public_key[issuer_public_key.len() - 97..];
+
+    let issuer_public_key =
+        VerifyingKey::from_sec1_bytes(&issuer_public_key).expect("Invalid public key");
+
+    println!("issuer public key sec1 {:?}", issuer_public_key);
+    //@todo should be issuer sig & issuer sig_structure
+    let x509_signature = cert.signature.raw_bytes();
+
+    //remove DER header
+    let x509_signature: [u8; 96] = x509_signature[cert.signature.raw_bytes().len() - 96..]
+        .try_into()
+        .expect("x509 signature doesn't have enough bytes");
+
+    println!("x509 signature DER {:?}", cert.signature.to_der());
+
+    let x509_signature = Signature::from_slice(&x509_signature).expect("Invalid x509 signature");
+
+    //@todo convert certificate to bytes
+    let mut cert_vec = vec![];
+    cert.tbs_certificate
+        .encode_to_vec(&mut cert_vec)
+        .expect("cert to der failed");
+    println!("sig_structure_x509: {:?}", cert_vec);
+
+    // let mut sig_structure_x509_with_prefix = vec![48, 130, 2, 123];
+    // sig_structure_x509_with_prefix.extend_from_slice(&sig_structure_x509);
+    // let sig_structure_x509 = sig_structure_x509_with_prefix;
+
+    //@bug verify fails here
+    issuer_public_key
+        .verify(&cert_vec, &x509_signature)
+        .expect("verify x509 cert failed");
+
+    //////////////////////////////////////////////////////////////////////////////
+    /////@test using OPENSSL to see if we get the same parameters
+
+    ///// get signature & sig_structure from cert
+    println!("---------------------------------------\n using openssl");
+    let x509_cert =
+        openssl::x509::X509::from_der(_certificate).expect("Failed to parse certificate");
+
+    println!("subject: {:?}", x509_cert.subject_name());
+    println!("issuer: {:?}", x509_cert.issuer_name());
+
+    let tbs_cert = x509_cert
+        .to_der()
+        .expect("Failed to get TBS certificate raw bytes");
+
+    let pub_key = x509_cert.public_key().expect("Failed to get public key");
+    println!("subject public key: {:?}", pub_key);
+    println!("x509 signature: {:?}", x509_cert.signature().as_slice());
+    println!("sig_structure_x509: {:?}", tbs_cert);
+
+    ///// get public key from issuer_cert
+    let issuer_cert =
+        openssl::x509::X509::from_der(&issuer_der).expect("Failed to parse issuer PEM");
+    let pub_key = issuer_cert.public_key().expect("Failed to get public key");
+    println!("issuer public key: {:?}", pub_key);
+
+    use base64::encode;
+
+    //////////////////////////////////////////////////////////////////////////////
+    // 2.verify remote attestation document signature
+    //this public key is different than the one that signed the x509
+    //note:sec1 doesnt comprise der headers
     let public_key = cert
         .tbs_certificate
         .subject_public_key_info
         .to_der()
         .expect("public key der failed");
 
-    //println!("public key der: {:?}", public_key.clone());
-    //sec1 doesnt comprise der headers
     let public_key = &public_key[public_key.len() - 97..];
-    //println!("public key sec1: {:?}", hex::encode(public_key));
+    //println!("cert public key {:?}", public_key);
 
     //@ok public key valid
     let verifying_key = VerifyingKey::from_sec1_bytes(&public_key).expect("Invalid public key");
@@ -52,11 +150,9 @@ pub fn verify(
     // Create a Signature object from the raw signature bytes
     let signature = Signature::from_slice(_signature).expect("Invalid signature");
 
-    //@ok parse sign structure = message
-    //correspond to Signature1D
+    //@ok construct cosign structure
     const HEADER: [u8; 13] = [132, 106, 83, 105, 103, 110, 97, 116, 117, 114, 101, 49, 68];
     let protected = _protected;
-    //@todo sometimes last byte is 96 sometimes 95, need to figure out why
 
     let payload_length_bytes: u8 = (_payload.len() - 4446 + 94)
         .try_into()
@@ -73,6 +169,7 @@ pub fn verify(
     ]
     .concat();
 
+    //println!("sign_structure: {:?}", sign_structure);
     //println!("pcrs: {:?}", document.pcrs);
     //@ok
     // Verify the signature
