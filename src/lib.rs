@@ -25,7 +25,7 @@ pub struct AttestationDocument {
     pub signature: [u8; 96],
     pub payload: [u8; 4447],
     pub certificate: [u8; 640],
-    pub ca_bundle: [u8; 640],
+    pub ca_bundle: [u8; 2749],
 }
 
 pub fn verify(
@@ -218,21 +218,20 @@ pub fn parse_cbor_document(document: &[u8]) -> Result<AttestationDocument, ()> {
         _ => panic!("Failed to decode CBOR payload:{:?}", payload),
     };
 
-    let certificate = payload
-        .get(&serde_cbor::Value::Text("certificate".try_into().unwrap()))
-        .expect("certificate not found");
-
     let ca_bundle = payload
         .get(&serde_cbor::Value::Text("cabundle".try_into().unwrap()))
         .expect("ca_bundle not found");
 
-    let ca_bundle_bytes: [u8; 2739] = serde_cbor::to_vec(&ca_bundle)
+    let ca_bundle_bytes: [u8; 2752] = serde_cbor::to_vec(&ca_bundle)
         .expect("failed to parse ca_bundle")
         .try_into()
         .expect("error slice ca_bundle");
 
     println!("length of ca_bundle: {:?}", ca_bundle_bytes.len());
 
+    let certificate = payload
+        .get(&serde_cbor::Value::Text("certificate".try_into().unwrap()))
+        .expect("certificate not found");
     //println!("certificate: {:?}", certificate);
 
     let certiricate_bytes: [u8; 643] = serde_cbor::to_vec(&certificate)
