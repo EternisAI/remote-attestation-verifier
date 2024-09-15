@@ -25,7 +25,7 @@ pub struct AttestationDocument {
     pub signature: [u8; 96],
     pub payload: [u8; 4447],
     pub certificate: [u8; 640],
-    pub ca_bundle: [u8; 2749],
+    pub ca_bundle: [u8; 2752],
 }
 
 pub fn verify(
@@ -37,6 +37,11 @@ pub fn verify(
 ) -> Result<(), p384::ecdsa::Error> {
     //OK: parse public key, convert from der to sec1 format
     let cert = x509_cert::Certificate::from_der(_certificate).expect("decode x509 cert failed");
+    let bundle_certs = extract_certificates_from_der(_ca_bundle);
+    println!("number of certs in bundle: {:?}", bundle_certs.len());
+    for cert in bundle_certs {
+        println!("ca bundle issuer: {:?}", cert.signature_algorithm);
+    }
 
     //////////////////////////////////////////////////////////////////////////////
     //1. verify x509 cert signature using x509_cert crate
@@ -51,7 +56,7 @@ pub fn verify(
     let issuer_pem = "MIICvzCCAkSgAwIBAgIUXfCzGrCNSNDTS+L1DQQA9CBMKNwwCgYIKoZIzj0EAwMwgYkxPDA6BgNVBAMMM2Y3NWZiMzQ0NzZhOTJhODcuem9uYWwudXMtZWFzdC0xLmF3cy5uaXRyby1lbmNsYXZlczEMMAoGA1UECwwDQVdTMQ8wDQYDVQQKDAZBbWF6b24xCzAJBgNVBAYTAlVTMQswCQYDVQQIDAJXQTEQMA4GA1UEBwwHU2VhdHRsZTAeFw0yNDA5MTMxNDIzNTBaFw0yNDA5MTQxNDIzNTBaMIGOMQswCQYDVQQGEwJVUzETMBEGA1UECAwKV2FzaGluZ3RvbjEQMA4GA1UEBwwHU2VhdHRsZTEPMA0GA1UECgwGQW1hem9uMQwwCgYDVQQLDANBV1MxOTA3BgNVBAMMMGktMGJiZjFiZmUyMzJiOGMyY2UudXMtZWFzdC0xLmF3cy5uaXRyby1lbmNsYXZlczB2MBAGByqGSM49AgEGBSuBBAAiA2IABF7SGcHdkRbzl/tGMXHBgJ88sy+HTekW+lomScVSEXYB1giAC6eQgElex/q78JTxuj/k7BV83GfjKE5BS5Bdlohfb3b/yA52MLQubQGAYLSZhBGZmRBaEleTF6r0381CgqNmMGQwEgYDVR0TAQH/BAgwBgEB/wIBADAOBgNVHQ8BAf8EBAMCAgQwHQYDVR0OBBYEFBvZFAgI1uf1KLtxVdsv0Zeh+HFMMB8GA1UdIwQYMBaAFFRGyCn8tZshs/IN+qolNuLZ48fmMAoGCCqGSM49BAMDA2kAMGYCMQDWFeTovh3hlMUu+/nEXCCTKs/0NftxY2s+BXSNFUki8V+LAYNeARuv2FpWHIWR9EECMQCNqJQe507gy1zFEy6loraps1Ohbz9rVETmbRvqekvcYb0KCq9uJMeKaWzgnWWD0wI=";
     let issuer_der = STANDARD.decode(issuer_pem).expect("Failed to decode PEM");
     let issuer_cert =
-        x509_cert::Certificate::from_der(_ca_bundle).expect("decode x509 cert failed");
+        x509_cert::Certificate::from_der(&issuer_der).expect("decode x509 cert failed");
 
     let issuer_public_key = issuer_cert
         .tbs_certificate
@@ -254,7 +259,7 @@ pub fn parse_cbor_document(document: &[u8]) -> Result<AttestationDocument, ()> {
         certificate: certiricate_bytes[3..]
             .try_into()
             .expect("certificate slice with incorrect length"),
-        ca_bundle: ca_bundle_bytes[3..]
+        ca_bundle: ca_bundle_bytes
             .try_into()
             .expect("ca_bundle slice with incorrect length"),
     })
@@ -466,6 +471,33 @@ pub fn parse_cbor_document(document: &[u8]) -> Result<AttestationDocument, ()> {
 // }
 
 //use rustls_pemfile::{certs, pkcs8_private_keys};
+
+fn extract_certificates_from_der(der_bundle: &[u8]) -> Vec<Certificate> {
+    let mut certificates = Vec::new();
+    let mut offset = 0;
+
+    while offset < der_bundle.len() {
+        // Attempt to parse a certificate from the current offset
+        let mut temp_offset = offset;
+        while temp_offset < der_bundle.len() {
+            match Certificate::from_der(&der_bundle[temp_offset..]) {
+                Ok(cert) => {
+                    certificates.push(cert.clone());
+                    println!("found a cert at {:?} {:?}", offset, temp_offset);
+                    // Move the offset by the length of the DER-encoded certificate
+                    offset = temp_offset + cert.to_der().expect("Failed to convert certificate to DER").len();
+                    break; // Exit the inner loop to continue with the next certificate
+                }
+                Err(_) => {
+                    // If parsing fails, increase the offset by 1 to try the next position
+                    temp_offset += 1;
+                }
+            }
+        }
+    }
+
+    certificates
+}
 
 #[cfg(test)]
 mod tests {
