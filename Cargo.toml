@@ -24,4 +24,4 @@ p384 = { version = "0.13.0", default-features = false, features = [
     "pkcs8",
     "sha384",
 ] }
-openssl = "0.10.66"
+#openssl = "0.10.66"

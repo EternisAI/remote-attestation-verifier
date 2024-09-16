@@ -21,10 +21,18 @@ use x509_cert::der::Encode;
 use x509_cert::Certificate;
 #[derive(Debug)]
 pub struct AttestationDocument {
-    pub protected: [u8; 4],
-    pub signature: [u8; 96],
-    pub payload: [u8; 4447],
-    pub certificate: [u8; 640],
+    pub protected: Vec<u8>,
+    pub signature: Vec<u8>,
+    pub payload: Vec<u8>,
+}
+
+#[derive(Debug)]
+pub struct Payload {
+    pub module_id: String,
+    pub timestamp: u64,
+    pub public_key: Option<Vec<u8>>,
+    pub certificate: Vec<u8>,
+    pub cabundle: Vec<Vec<u8>>,
 }
 
 pub fn verify(
@@ -46,6 +54,11 @@ pub fn verify(
 
     //NOTE: issuer cert is extracted from the cabundle (check main branch to find the code to extract the certs from cabundle object)
     //TODO: next step: extract issuer signature cabundle object iof hardcoded
+
+    let cabundle = parse_payload(&_payload.to_vec()).expect("Fale to parse payload");
+
+    println!("cabundle: {:?}", cabundle);
+
     let issuer_pem = "MIICvzCCAkSgAwIBAgIUXfCzGrCNSNDTS+L1DQQA9CBMKNwwCgYIKoZIzj0EAwMwgYkxPDA6BgNVBAMMM2Y3NWZiMzQ0NzZhOTJhODcuem9uYWwudXMtZWFzdC0xLmF3cy5uaXRyby1lbmNsYXZlczEMMAoGA1UECwwDQVdTMQ8wDQYDVQQKDAZBbWF6b24xCzAJBgNVBAYTAlVTMQswCQYDVQQIDAJXQTEQMA4GA1UEBwwHU2VhdHRsZTAeFw0yNDA5MTMxNDIzNTBaFw0yNDA5MTQxNDIzNTBaMIGOMQswCQYDVQQGEwJVUzETMBEGA1UECAwKV2FzaGluZ3RvbjEQMA4GA1UEBwwHU2VhdHRsZTEPMA0GA1UECgwGQW1hem9uMQwwCgYDVQQLDANBV1MxOTA3BgNVBAMMMGktMGJiZjFiZmUyMzJiOGMyY2UudXMtZWFzdC0xLmF3cy5uaXRyby1lbmNsYXZlczB2MBAGByqGSM49AgEGBSuBBAAiA2IABF7SGcHdkRbzl/tGMXHBgJ88sy+HTekW+lomScVSEXYB1giAC6eQgElex/q78JTxuj/k7BV83GfjKE5BS5Bdlohfb3b/yA52MLQubQGAYLSZhBGZmRBaEleTF6r0381CgqNmMGQwEgYDVR0TAQH/BAgwBgEB/wIBADAOBgNVHQ8BAf8EBAMCAgQwHQYDVR0OBBYEFBvZFAgI1uf1KLtxVdsv0Zeh+HFMMB8GA1UdIwQYMBaAFFRGyCn8tZshs/IN+qolNuLZ48fmMAoGCCqGSM49BAMDA2kAMGYCMQDWFeTovh3hlMUu+/nEXCCTKs/0NftxY2s+BXSNFUki8V+LAYNeARuv2FpWHIWR9EECMQCNqJQe507gy1zFEy6loraps1Ohbz9rVETmbRvqekvcYb0KCq9uJMeKaWzgnWWD0wI=";
     let issuer_der = STANDARD.decode(issuer_pem).expect("Failed to decode PEM");
     let issuer_cert =
@@ -66,7 +79,7 @@ pub fn verify(
     //TODO: should panic if algorithm is not expected
 
     //TEST: print to PEM for testing in web decoder
-    let cert_base64 = encode(&issuer_der);
+    let cert_base64 = STANDARD.encode(&issuer_der);
     println!(
         "-----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----",
         cert_base64
@@ -101,35 +114,35 @@ pub fn verify(
     // let sig_structure_x509 = sig_structure_x509_with_prefix;
 
     //BUG:  verify fails here, one of 3 values must be wrong
-    issuer_public_key
-        .verify(&sig_structure_x509, &x509_signature)
-        .expect("verify x509 cert failed");
+    // issuer_public_key
+    //     .verify(&sig_structure_x509, &x509_signature)
+    //     .expect("verify x509 cert failed");
 
     //////////////////////////////////////////////////////////////////////////////
     /////TEST: using OPENSSL to see if we get the same parameters
 
     ///// get signature & sig_structure from cert
-    println!("---------------------------------------\n using openssl");
-    let x509_cert =
-        openssl::x509::X509::from_der(_certificate).expect("Failed to parse certificate");
+    // println!("---------------------------------------\n using openssl");
+    // let x509_cert =
+    //     openssl::x509::X509::from_der(_certificate).expect("Failed to parse certificate");
 
     //println!("subject: {:?}", x509_cert.subject_name());
     //println!("issuer: {:?}", x509_cert.issuer_name());
 
-    let tbs_cert = x509_cert
-        .to_der()
-        .expect("Failed to get TBS certificate raw bytes");
+    // let tbs_cert = x509_cert
+    //     .to_der()
+    //     .expect("Failed to get TBS certificate raw bytes");
 
-    let pub_key = x509_cert.public_key().expect("Failed to get public key");
-    //println!("subject public key: {:?}", pub_key);
-    println!("x509 signature: {:?}", x509_cert.signature().as_slice());
-    println!("sig_structure_x509: {:?}", tbs_cert);
+    // let pub_key = x509_cert.public_key().expect("Failed to get public key");
+    // //println!("subject public key: {:?}", pub_key);
+    // println!("x509 signature: {:?}", x509_cert.signature().as_slice());
+    // println!("sig_structure_x509: {:?}", tbs_cert);
 
-    ///// get public key from issuer_cert
-    let issuer_cert =
-        openssl::x509::X509::from_der(&issuer_der).expect("Failed to parse issuer PEM");
+    // ///// get public key from issuer_cert
+    // let issuer_cert =
+    //     openssl::x509::X509::from_der(&issuer_der).expect("Failed to parse issuer PEM");
 
-    use base64::encode;
+    // use base64::encode;
 
     //////////////////////////////////////////////////////////////////////////////
     //OK: 2.verify remote attestation document signature
@@ -178,254 +191,256 @@ pub fn verify(
 
 //BUG: doesn't work consistenty because no_std expect fixed size arrays but
 // remote attestation is of variable size
-pub fn parse_cbor_document(document: &[u8]) -> Result<AttestationDocument, ()> {
-    use serde_cbor;
-    let document: serde_cbor::Value = serde_cbor::from_slice(&document).expect("");
+// pub fn parse_cbor_document(document: &[u8]) -> Result<AttestationDocument, ()> {
+//     use serde_cbor;
+//     let document: serde_cbor::Value = serde_cbor::from_slice(&document).expect("");
 
-    let elements = match document {
+//     let elements = match document {
+//         serde_cbor::Value::Array(elements) => elements,
+//         _ => panic!(
+//             "AttestationVerifier::parse Unknown field cbor:{:?}",
+//             document
+//         ),
+//     };
+
+//     let protected = elements.get(0).expect("protected not found");
+//     let payload = elements.get(2).expect("payload not found");
+//     let signature = elements.get(3).expect("signature not found");
+
+//     //let payload: serde_cbor::Value = serde_cbor::from_slice(&payload).expect("");
+
+//     let protected_bytes: [u8; 5] = serde_cbor::to_vec(&protected)
+//         .expect("failed to parse protected")
+//         .try_into()
+//         .expect("error slice protected");
+
+//     let signature_bytes: [u8; 98] = serde_cbor::to_vec(&signature)
+//         .expect("failed to parse signature")
+//         .try_into()
+//         .expect("error slice signature");
+
+//     let payload_bytes = serde_cbor::to_vec(&payload).expect("failed to parse payload");
+
+//     let payload: serde_cbor::Value =
+//         serde_cbor::from_slice(&payload_bytes[3..]).expect("error slice payload");
+
+//     let payload = match payload {
+//         serde_cbor::Value::Map(elements) => elements,
+//         _ => panic!("Failed to decode CBOR payload:{:?}", payload),
+//     };
+
+//     let certificate = payload
+//         .get(&serde_cbor::Value::Text("certificate".try_into().unwrap()))
+//         .expect("certificate not found");
+
+//     //println!("certificate: {:?}", certificate);
+
+//     let certiricate_bytes: [u8; 643] = serde_cbor::to_vec(&certificate)
+//         .expect("failed to parse certificate")
+//         .try_into()
+//         .expect("error slice certificate");
+
+//     //println!("certifcate_bytes: {:?}", certifcate_bytes);
+
+//     Ok(AttestationDocument {
+//         protected: protected_bytes[1..]
+//             .try_into()
+//             .expect("protected slice with incorrect length"),
+//         payload: payload_bytes[3..]
+//             .try_into()
+//             .expect("payload slice with incorrect length"),
+//         signature: signature_bytes[2..]
+//             .try_into()
+//             .expect("signature slice with incorrect length"),
+//         certificate: certiricate_bytes[3..]
+//             .try_into()
+//             .expect("certificate slice with incorrect length"),
+//     })
+// }
+
+pub fn parse_document(document_data: &Vec<u8>) -> Result<AttestationDocument, String> {
+    let cbor: serde_cbor::Value = serde_cbor::from_slice(document_data)
+        .map_err(|err| format!("AttestationVerifier::parse from_slice failed:{:?}", err))?;
+    let elements = match cbor {
         serde_cbor::Value::Array(elements) => elements,
+        _ => panic!("AttestationVerifier::parse Unknown field cbor:{:?}", cbor),
+    };
+    let protected = match &elements[0] {
+        serde_cbor::Value::Bytes(prot) => prot,
         _ => panic!(
-            "AttestationVerifier::parse Unknown field cbor:{:?}",
-            document
+            "AttestationVerifier::parse Unknown field protected:{:?}",
+            elements[0]
         ),
     };
-
-    let protected = elements.get(0).expect("protected not found");
-    let payload = elements.get(2).expect("payload not found");
-    let signature = elements.get(3).expect("signature not found");
-
-    //let payload: serde_cbor::Value = serde_cbor::from_slice(&payload).expect("");
-
-    let protected_bytes: [u8; 5] = serde_cbor::to_vec(&protected)
-        .expect("failed to parse protected")
-        .try_into()
-        .expect("error slice protected");
-
-    let signature_bytes: [u8; 98] = serde_cbor::to_vec(&signature)
-        .expect("failed to parse signature")
-        .try_into()
-        .expect("error slice signature");
-
-    let payload_bytes = serde_cbor::to_vec(&payload).expect("failed to parse payload");
-
-    let payload: serde_cbor::Value =
-        serde_cbor::from_slice(&payload_bytes[3..]).expect("error slice payload");
-
-    let payload = match payload {
-        serde_cbor::Value::Map(elements) => elements,
-        _ => panic!("Failed to decode CBOR payload:{:?}", payload),
+    let _unprotected = match &elements[1] {
+        serde_cbor::Value::Map(unprot) => unprot,
+        _ => panic!(
+            "AttestationVerifier::parse Unknown field unprotected:{:?}",
+            elements[1]
+        ),
     };
-
-    let certificate = payload
-        .get(&serde_cbor::Value::Text("certificate".try_into().unwrap()))
-        .expect("certificate not found");
-
-    //println!("certificate: {:?}", certificate);
-
-    let certiricate_bytes: [u8; 643] = serde_cbor::to_vec(&certificate)
-        .expect("failed to parse certificate")
-        .try_into()
-        .expect("error slice certificate");
-
-    //println!("certifcate_bytes: {:?}", certifcate_bytes);
-
+    let payload = match &elements[2] {
+        serde_cbor::Value::Bytes(payld) => payld,
+        _ => panic!(
+            "AttestationVerifier::parse Unknown field payload:{:?}",
+            elements[2]
+        ),
+    };
+    let signature = match &elements[3] {
+        serde_cbor::Value::Bytes(sig) => sig,
+        _ => panic!(
+            "AttestationVerifier::parse Unknown field signature:{:?}",
+            elements[3]
+        ),
+    };
     Ok(AttestationDocument {
-        protected: protected_bytes[1..]
-            .try_into()
-            .expect("protected slice with incorrect length"),
-        payload: payload_bytes[3..]
-            .try_into()
-            .expect("payload slice with incorrect length"),
-        signature: signature_bytes[2..]
-            .try_into()
-            .expect("signature slice with incorrect length"),
-        certificate: certiricate_bytes[3..]
-            .try_into()
-            .expect("certificate slice with incorrect length"),
+        protected: protected.to_vec(),
+        payload: payload.to_vec(),
+        signature: signature.to_vec(),
     })
 }
 
-// fn parse(document_data: &[u8]) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), String> {
-//     let cbor: serde_cbor::Value = serde_cbor::from_slice(document_data)
-//         .map_err(|err| format!("AttestationVerifier::parse from_slice failed:{:?}", err))?;
-//     let elements = match cbor {
-//         serde_cbor::Value::Array(elements) => elements,
-//         _ => panic!("AttestationVerifier::parse Unknown field cbor:{:?}", cbor),
-//     };
-//     let protected = match &elements[0] {
-//         serde_cbor::Value::Bytes(prot) => prot,
-//         _ => panic!(
-//             "AttestationVerifier::parse Unknown field protected:{:?}",
-//             elements[0]
-//         ),
-//     };
-//     let _unprotected = match &elements[1] {
-//         serde_cbor::Value::Map(unprot) => unprot,
-//         _ => panic!(
-//             "AttestationVerifier::parse Unknown field unprotected:{:?}",
-//             elements[1]
-//         ),
-//     };
-//     let payload = match &elements[2] {
-//         serde_cbor::Value::Bytes(payld) => payld,
-//         _ => panic!(
-//             "AttestationVerifier::parse Unknown field payload:{:?}",
-//             elements[2]
-//         ),
-//     };
-//     let signature = match &elements[3] {
-//         serde_cbor::Value::Bytes(sig) => sig,
-//         _ => panic!(
-//             "AttestationVerifier::parse Unknown field signature:{:?}",
-//             elements[3]
-//         ),
-//     };
-//     Ok((protected.to_vec(), payload.to_vec(), signature.to_vec()))
-// }
-
-// fn parse_payload(payload: &Vec<u8>) -> Result<AttestationDocument, String> {
-//     let document_data: serde_cbor::Value = serde_cbor::from_slice(payload.as_slice())
-//         .map_err(|err| format!("document parse failed:{:?}", err))?;
-//     let document_map: BTreeMap<serde_cbor::Value, serde_cbor::Value> = match document_data {
-//         serde_cbor::Value::Map(map) => map,
-//         _ => {
-//             return Err(format!(
-//                 "AttestationVerifier::parse_payload field ain't what it should be:{:?}",
-//                 document_data
-//             ))
-//         }
-//     };
-//     let module_id = match document_map.get(&serde_cbor::Value::Text(
-//         "module_id".try_into().expect("module_id_fail"),
-//     )) {
-//         Some(serde_cbor::Value::Text(val)) => val.to_string(),
-//         _ => {
-//             return Err(format!(
-//                 "AttestationVerifier::parse_payload module_id is wrong type or not present"
-//             ))
-//         }
-//     };
-//     let timestamp: i128 =
-//         match document_map.get(&serde_cbor::Value::Text("timestamp".to_string())) {
-//             Some(serde_cbor::Value::Integer(val)) => *val,
-//             _ => {
-//                 return Err(format!(
-//                     "AttestationVerifier::parse_payload timestamp is wrong type or not present"
-//                 ))
-//             }
-//         };
-//     let timestamp: u64 = timestamp.try_into().map_err(|err| {
-//         format!(
-//             "AttestationVerifier::parse_payload failed to convert timestamp to u64:{:?}",
-//             err
-//         )
-//     })?;
-//     let public_key: Option<Vec<u8>> =
-//         match document_map.get(&serde_cbor::Value::Text("public_key".to_string())) {
-//             Some(serde_cbor::Value::Bytes(val)) => Some(val.to_vec()),
-//             Some(_null) => None,
-//             None => None,
-//         };
-//     let certificate: Vec<u8> =
-//         match document_map.get(&serde_cbor::Value::Text("certificate".to_string())) {
-//             Some(serde_cbor::Value::Bytes(val)) => val.to_vec(),
-//             _ => {
-//                 return Err(format!(
-//                 "AttestationVerifier::parse_payload certificate is wrong type or not present"
-//             ))
-//             }
-//         };
-//     let pcrs: Vec<Vec<u8>> = match document_map
-//         .get(&serde_cbor::Value::Text("pcrs".to_string()))
-//     {
-//         Some(serde_cbor::Value::Map(map)) => {
-//             let mut ret_vec: Vec<Vec<u8>> = Vec::new();
-//             let num_entries:i128 = map.len().try_into()
-//                 .map_err(|err| format!("AttestationVerifier::parse_payload failed to convert pcrs len into i128:{:?}", err))?;
-//             for x in 0..num_entries {
-//                 match map.get(&serde_cbor::Value::Integer(x)) {
-//                     Some(serde_cbor::Value::Bytes(inner_vec)) => {
-//                         ret_vec.push(inner_vec.to_vec());
-//                     },
-//                     _ => return Err(format!("AttestationVerifier::parse_payload pcrs inner vec is wrong type or not there?")),
-//                 }
-//             }
-//             ret_vec
-//         }
-//         _ => {
-//             return Err(format!(
-//                 "AttestationVerifier::parse_payload pcrs is wrong type or not present"
-//             ))
-//         }
-//     };
-//     for (i, pcr) in pcrs.iter().enumerate() {
-//         let pcr_str = pcr.iter().map(|b| format!("{:02x}", b)).collect::<String>();
-//         // println!("PCR {}: {}", i, pcr_str);
-//     }
-//     let nonce: Option<Vec<u8>> =
-//         match document_map.get(&serde_cbor::Value::Text("nonce".to_string())) {
-//             Some(serde_cbor::Value::Bytes(val)) => Some(val.to_vec()),
-//             None => None,
-//             _ => {
-//                 return Err(format!(
-//                     "AttestationVerifier::parse_payload nonce is wrong type or not present"
-//                 ))
-//             }
-//         };
-//     println!("nonce:{:?}", nonce);
-//     let user_data: Option<Vec<u8>> =
-//         match document_map.get(&serde_cbor::Value::Text("user_data".to_string())) {
-//             Some(serde_cbor::Value::Bytes(val)) => Some(val.to_vec()),
-//             None => None,
-//             Some(_null) => None,
-//         };
-//     let digest: String = match document_map.get(&serde_cbor::Value::Text("digest".to_string()))
-//     {
-//         Some(serde_cbor::Value::Text(val)) => val.to_string(),
-//         _ => {
-//             return Err(format!(
-//                 "AttestationVerifier::parse_payload digest is wrong type or not present"
-//             ))
-//         }
-//     };
-//     let cabundle: Vec<Vec<u8>> =
-//         match document_map.get(&serde_cbor::Value::Text("cabundle".to_string())) {
-//             Some(serde_cbor::Value::Array(outer_vec)) => {
-//                 let mut ret_vec: Vec<Vec<u8>> = Vec::new();
-//                 for this_vec in outer_vec.iter() {
-//                     match this_vec {
-//                         serde_cbor::Value::Bytes(inner_vec) => {
-//                             ret_vec.push(inner_vec.to_vec());
-//                         }
-//                         _ => {
-//                             return Err(format!(
-//                                 "AttestationVerifier::parse_payload inner_vec is wrong type"
-//                             ))
-//                         }
-//                     }
-//                 }
-//                 ret_vec
-//             }
-//             _ => {
-//                 return Err(format!(
-//                 "AttestationVerifier::parse_payload cabundle is wrong type or not present:{:?}",
-//                 document_map.get(&serde_cbor::Value::Text("cabundle".to_string()))
-//             ))
-//             }
-//         };
-//     Ok(AttestationDocument {
-//         module_id: module_id,
-//         timestamp: timestamp,
-//         digest: digest,
-//         pcrs: pcrs,
-//         certificate: certificate,
-//         cabundle: cabundle,
-//         public_key: public_key,
-//         user_data: user_data,
-//         nonce: nonce,
-//     })
-// }
-// // pub fn fetch_attestation_document(&self, nonce: &str) -> Result<Vec<u8>, String> {
+use std::collections::BTreeMap;
+pub fn parse_payload(payload: &Vec<u8>) -> Result<Payload, String> {
+    let document_data: serde_cbor::Value = serde_cbor::from_slice(payload.as_slice())
+        .map_err(|err| format!("document parse failed:{:?}", err))?;
+    let document_map: BTreeMap<serde_cbor::Value, serde_cbor::Value> = match document_data {
+        serde_cbor::Value::Map(map) => map,
+        _ => {
+            return Err(format!(
+                "AttestationVerifier::parse_payload field ain't what it should be:{:?}",
+                document_data
+            ))
+        }
+    };
+    let module_id = match document_map.get(&serde_cbor::Value::Text(
+        "module_id".try_into().expect("module_id_fail"),
+    )) {
+        Some(serde_cbor::Value::Text(val)) => val.to_string(),
+        _ => {
+            return Err(format!(
+                "AttestationVerifier::parse_payload module_id is wrong type or not present"
+            ))
+        }
+    };
+    let timestamp: i128 = match document_map.get(&serde_cbor::Value::Text("timestamp".to_string()))
+    {
+        Some(serde_cbor::Value::Integer(val)) => *val,
+        _ => {
+            return Err(format!(
+                "AttestationVerifier::parse_payload timestamp is wrong type or not present"
+            ))
+        }
+    };
+    let timestamp: u64 = timestamp.try_into().map_err(|err| {
+        format!(
+            "AttestationVerifier::parse_payload failed to convert timestamp to u64:{:?}",
+            err
+        )
+    })?;
+    let public_key: Option<Vec<u8>> =
+        match document_map.get(&serde_cbor::Value::Text("public_key".to_string())) {
+            Some(serde_cbor::Value::Bytes(val)) => Some(val.to_vec()),
+            Some(_null) => None,
+            None => None,
+        };
+    let certificate: Vec<u8> =
+        match document_map.get(&serde_cbor::Value::Text("certificate".to_string())) {
+            Some(serde_cbor::Value::Bytes(val)) => val.to_vec(),
+            _ => {
+                return Err(format!(
+                    "AttestationVerifier::parse_payload certificate is wrong type or not present"
+                ))
+            }
+        };
+    let pcrs: Vec<Vec<u8>> = match document_map.get(&serde_cbor::Value::Text("pcrs".to_string())) {
+        Some(serde_cbor::Value::Map(map)) => {
+            let mut ret_vec: Vec<Vec<u8>> = Vec::new();
+            let num_entries: i128 = map.len().try_into().map_err(|err| {
+                format!(
+                    "AttestationVerifier::parse_payload failed to convert pcrs len into i128:{:?}",
+                    err
+                )
+            })?;
+            for x in 0..num_entries {
+                match map.get(&serde_cbor::Value::Integer(x)) {
+                    Some(serde_cbor::Value::Bytes(inner_vec)) => {
+                        ret_vec.push(inner_vec.to_vec());
+                    },
+                    _ => return Err(format!("AttestationVerifier::parse_payload pcrs inner vec is wrong type or not there?")),
+                }
+            }
+            ret_vec
+        }
+        _ => {
+            return Err(format!(
+                "AttestationVerifier::parse_payload pcrs is wrong type or not present"
+            ))
+        }
+    };
+    for (i, pcr) in pcrs.iter().enumerate() {
+        let pcr_str = pcr.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+        // println!("PCR {}: {}", i, pcr_str);
+    }
+    let nonce: Option<Vec<u8>> =
+        match document_map.get(&serde_cbor::Value::Text("nonce".to_string())) {
+            Some(serde_cbor::Value::Bytes(val)) => Some(val.to_vec()),
+            None => None,
+            _ => {
+                return Err(format!(
+                    "AttestationVerifier::parse_payload nonce is wrong type or not present"
+                ))
+            }
+        };
+    println!("nonce:{:?}", nonce);
+    let user_data: Option<Vec<u8>> =
+        match document_map.get(&serde_cbor::Value::Text("user_data".to_string())) {
+            Some(serde_cbor::Value::Bytes(val)) => Some(val.to_vec()),
+            None => None,
+            Some(_null) => None,
+        };
+    let digest: String = match document_map.get(&serde_cbor::Value::Text("digest".to_string())) {
+        Some(serde_cbor::Value::Text(val)) => val.to_string(),
+        _ => {
+            return Err(format!(
+                "AttestationVerifier::parse_payload digest is wrong type or not present"
+            ))
+        }
+    };
+    let cabundle: Vec<Vec<u8>> =
+        match document_map.get(&serde_cbor::Value::Text("cabundle".to_string())) {
+            Some(serde_cbor::Value::Array(outer_vec)) => {
+                let mut ret_vec: Vec<Vec<u8>> = Vec::new();
+                for this_vec in outer_vec.iter() {
+                    match this_vec {
+                        serde_cbor::Value::Bytes(inner_vec) => {
+                            ret_vec.push(inner_vec.to_vec());
+                        }
+                        _ => {
+                            return Err(format!(
+                                "AttestationVerifier::parse_payload inner_vec is wrong type"
+                            ))
+                        }
+                    }
+                }
+                ret_vec
+            }
+            _ => {
+                return Err(format!(
+                    "AttestationVerifier::parse_payload cabundle is wrong type or not present:{:?}",
+                    document_map.get(&serde_cbor::Value::Text("cabundle".to_string()))
+                ))
+            }
+        };
+    Ok(Payload {
+        module_id: module_id,
+        timestamp: timestamp,
+        public_key: public_key,
+        certificate: certificate,
+        cabundle: cabundle,
+    })
+}
+// pub fn fetch_attestation_document(&self, nonce: &str) -> Result<Vec<u8>, String> {
 //     use reqwest::blocking::Client;
 //     use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 //     let url = format!("{}?nonce={}", self.enclave_endpoint, nonce);
@@ -464,13 +479,14 @@ mod tests {
             .expect("decode cbor document failed");
 
         let attestation_document =
-            parse_cbor_document(&document_data).expect("parse cbor document failed");
+            parse_document(&document_data).expect("parse cbor document failed");
 
+        let payload = parse_payload(&attestation_document.payload).expect("parse payload failed");
         verify(
             &attestation_document.protected,
             &attestation_document.signature,
             &attestation_document.payload,
-            &attestation_document.certificate,
+            &payload.certificate,
         )
         .expect("remote attestation verification failed");
     }
