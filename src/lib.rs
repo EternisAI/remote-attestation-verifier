@@ -189,75 +189,6 @@ pub fn verify(
     verifying_key.verify(&sign_structure, &signature)
 }
 
-//BUG: doesn't work consistenty because no_std expect fixed size arrays but
-// remote attestation is of variable size
-// pub fn parse_cbor_document(document: &[u8]) -> Result<AttestationDocument, ()> {
-//     use serde_cbor;
-//     let document: serde_cbor::Value = serde_cbor::from_slice(&document).expect("");
-
-//     let elements = match document {
-//         serde_cbor::Value::Array(elements) => elements,
-//         _ => panic!(
-//             "AttestationVerifier::parse Unknown field cbor:{:?}",
-//             document
-//         ),
-//     };
-
-//     let protected = elements.get(0).expect("protected not found");
-//     let payload = elements.get(2).expect("payload not found");
-//     let signature = elements.get(3).expect("signature not found");
-
-//     //let payload: serde_cbor::Value = serde_cbor::from_slice(&payload).expect("");
-
-//     let protected_bytes: [u8; 5] = serde_cbor::to_vec(&protected)
-//         .expect("failed to parse protected")
-//         .try_into()
-//         .expect("error slice protected");
-
-//     let signature_bytes: [u8; 98] = serde_cbor::to_vec(&signature)
-//         .expect("failed to parse signature")
-//         .try_into()
-//         .expect("error slice signature");
-
-//     let payload_bytes = serde_cbor::to_vec(&payload).expect("failed to parse payload");
-
-//     let payload: serde_cbor::Value =
-//         serde_cbor::from_slice(&payload_bytes[3..]).expect("error slice payload");
-
-//     let payload = match payload {
-//         serde_cbor::Value::Map(elements) => elements,
-//         _ => panic!("Failed to decode CBOR payload:{:?}", payload),
-//     };
-
-//     let certificate = payload
-//         .get(&serde_cbor::Value::Text("certificate".try_into().unwrap()))
-//         .expect("certificate not found");
-
-//     //println!("certificate: {:?}", certificate);
-
-//     let certiricate_bytes: [u8; 643] = serde_cbor::to_vec(&certificate)
-//         .expect("failed to parse certificate")
-//         .try_into()
-//         .expect("error slice certificate");
-
-//     //println!("certifcate_bytes: {:?}", certifcate_bytes);
-
-//     Ok(AttestationDocument {
-//         protected: protected_bytes[1..]
-//             .try_into()
-//             .expect("protected slice with incorrect length"),
-//         payload: payload_bytes[3..]
-//             .try_into()
-//             .expect("payload slice with incorrect length"),
-//         signature: signature_bytes[2..]
-//             .try_into()
-//             .expect("signature slice with incorrect length"),
-//         certificate: certiricate_bytes[3..]
-//             .try_into()
-//             .expect("certificate slice with incorrect length"),
-//     })
-// }
-
 pub fn parse_document(document_data: &Vec<u8>) -> Result<AttestationDocument, String> {
     let cbor: serde_cbor::Value = serde_cbor::from_slice(document_data)
         .map_err(|err| format!("AttestationVerifier::parse from_slice failed:{:?}", err))?;
@@ -464,8 +395,6 @@ pub fn parse_payload(payload: &Vec<u8>) -> Result<Payload, String> {
 //     STANDARD.decode(decoded_response.trim())
 //         .map_err(|e| format!("Failed to decode base64: {}", e))
 // }
-
-//use rustls_pemfile::{certs, pkcs8_private_keys};
 
 #[cfg(test)]
 mod tests {
