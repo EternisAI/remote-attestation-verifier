@@ -32,10 +32,10 @@ const AWS_TRUSTED_ROOT_CERT: &str = "MIICETCCAZagAwIBAgIRAPkxdWgbkK/hHUbMtOTn+FY
 pub struct Payload {
     pub module_id: String,
     pub timestamp: u64,
-    pub public_key: Option<Vec<u8>>,
+    pub public_key: Vec<u8>,
     pub certificate: Vec<u8>,
     pub cabundle: Vec<Vec<u8>>,
-    pub nonce: Option<Vec<u8>>,
+    pub nonce: Vec<u8>,
     pub user_data: Option<Vec<u8>>,
     pub digest: String,
     pub pcrs: Vec<Vec<u8>>,
@@ -51,9 +51,15 @@ pub fn verify(
 ) -> Result<(), p384::ecdsa::Error> {
     //OK: parse public key, convert from der to sec1 format
 
-    //verify nonce
-    let _nonce = payload.nonce;
-    println!("nonce {:?} {:?}", _nonce, nonce);
+    //////////////////////////////////////////////////////////////////////////////
+    //1. verify nonce
+    if payload.nonce != nonce {
+        return Err(p384::ecdsa::Error::new());
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    //2. verify pcrs
+
     //////////////////////////////////////////////////////////////////////////////
     //1. verify x509 cert
     let mut certs: Vec<rustls::Certificate> = Vec::new();
@@ -208,11 +214,15 @@ pub fn parse_payload(payload: &Vec<u8>) -> Result<Payload, String> {
             err
         )
     })?;
-    let public_key: Option<Vec<u8>> =
+    let public_key: Vec<u8> =
         match document_map.get(&serde_cbor::Value::Text("public_key".to_string())) {
-            Some(serde_cbor::Value::Bytes(val)) => Some(val.to_vec()),
-            Some(_null) => None,
-            None => None,
+            Some(serde_cbor::Value::Bytes(val)) => val.to_vec(),
+            Some(_null) => vec![],
+            _ => {
+                return Err(format!(
+                    "AttestationVerifier::parse_payload public_key is wrong type or not present"
+                ))
+            }
         };
     let certificate: Vec<u8> =
         match document_map.get(&serde_cbor::Value::Text("certificate".to_string())) {
@@ -252,16 +262,14 @@ pub fn parse_payload(payload: &Vec<u8>) -> Result<Payload, String> {
         let pcr_str = pcr.iter().map(|b| format!("{:02x}", b)).collect::<String>();
         // println!("PCR {}: {}", i, pcr_str);
     }
-    let nonce: Option<Vec<u8>> =
-        match document_map.get(&serde_cbor::Value::Text("nonce".to_string())) {
-            Some(serde_cbor::Value::Bytes(val)) => Some(val.to_vec()),
-            None => None,
-            _ => {
-                return Err(format!(
-                    "AttestationVerifier::parse_payload nonce is wrong type or not present"
-                ))
-            }
-        };
+    let nonce = match document_map.get(&serde_cbor::Value::Text("nonce".to_string())) {
+        Some(serde_cbor::Value::Bytes(val)) => val.to_vec(),
+        _ => {
+            return Err(format!(
+                "AttestationVerifier::parse_payload nonce is wrong type or not present"
+            ))
+        }
+    };
 
     let user_data: Option<Vec<u8>> =
         match document_map.get(&serde_cbor::Value::Text("user_data".to_string())) {
@@ -343,7 +351,7 @@ pub fn parse_payload(payload: &Vec<u8>) -> Result<Payload, String> {
 mod tests {
 
     use super::*;
-
+    use hex;
     #[test]
     fn test_verify() {
         //parsing cbor without std functions
@@ -358,7 +366,9 @@ mod tests {
             .decode(AWS_TRUSTED_ROOT_CERT)
             .expect("failed to decode trusted_root");
 
-        let nonce = base64::decode("").expect("decode nonce failed");
+        let nonce =
+            hex::decode("0000000000000000000000000000000000000001").expect("decode nonce failed");
+
         let payload = parse_payload(&attestation_document.payload).expect("parse payload failed");
         verify(attestation_document, payload, trusted_root, nonce)
             .expect("remote attestation verification failed");
