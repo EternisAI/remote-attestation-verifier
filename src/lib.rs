@@ -25,7 +25,7 @@ pub struct AttestationDocument {
     pub signature: [u8; 96],
     pub payload: [u8; 4447],
     pub certificate: [u8; 640],
-    pub ca_bundle: [u8; 2752],
+    pub ca_bundle: Vec<Vec<u8>>,
 }
 
 pub fn verify(
@@ -33,13 +33,46 @@ pub fn verify(
     _signature: &[u8],
     _payload: &[u8],
     _certificate: &[u8],
-    _ca_bundle: &[u8],
+    _ca_bundle: Vec<Vec<u8>>,
 ) -> Result<(), p384::ecdsa::Error> {
     //OK: parse public key, convert from der to sec1 format
     let cert = x509_cert::Certificate::from_der(_certificate).expect("decode x509 cert failed");
-    let bundle_certs = extract_certificates_from_der(_ca_bundle);
-    println!("number of certs in bundle: {:?}", bundle_certs.len());
-    let issuer_cert = bundle_certs.get(2).expect("issuer cert not found");
+    let mut bundled_certs = Vec::new();
+    for cert in _ca_bundle {
+        bundled_certs
+            .push(x509_cert::Certificate::from_der(&cert).expect("decode x509 cert failed"));
+    }
+    println!("number of certs in bundle: {:?}", bundled_certs.len());
+
+    let cert_issuer_name = cert
+        .tbs_certificate
+        .issuer
+        .0
+        .iter()
+        .map(|rdn| rdn.to_string())
+        .collect::<Vec<String>>();
+    println!("cert issuer name {:?}", cert_issuer_name.join(","));
+
+    for cert in bundled_certs.clone() {
+        let subject_name = cert
+            .tbs_certificate
+            .subject
+            .0
+            .iter()
+            .map(|rdn| rdn.to_string())
+            .collect::<Vec<String>>();
+        let issuer_name = cert
+            .tbs_certificate
+            .issuer
+            .0
+            .iter()
+            .map(|rdn| rdn.to_string())
+            .collect::<Vec<String>>();
+        println!("ca bundle cert subject name {:?}", subject_name.join(","));
+        println!("ca bundle cert issuer name {:?}", issuer_name.join(","));
+        println!("---------------------------------------\n");
+    }
+    let issuer_cert = bundled_certs.get(3).expect("issuer cert not found");
 
     let issuer_public_key_der = issuer_cert
         .tbs_certificate
@@ -53,27 +86,11 @@ pub fn verify(
     );
     println!("cert name {:?}", cert.tbs_certificate.subject.to_string());
 
-
     let issuer_public_key_bytes = &issuer_public_key_der[issuer_public_key_der.len() - 97..];
     let issuer_public_key =
         VerifyingKey::from_sec1_bytes(&issuer_public_key_bytes).expect("Invalid public key");
 
     println!("issuer public key sec1 {:?}", issuer_public_key);
-
-    let cert_issuer_name = cert
-        .tbs_certificate
-        .issuer
-        .0
-        .iter()
-        .map(|rdn| rdn.to_string())
-        .collect::<Vec<String>>();
-    println!("cert issuer name {:?}", cert_issuer_name.join(","));
-    for cert in bundle_certs {
-        let subject_name = cert.tbs_certificate.subject.0.iter().map(|rdn| rdn.to_string()).collect::<Vec<String>>();
-        let issuer_name = cert.tbs_certificate.issuer.0.iter().map(|rdn| rdn.to_string()).collect::<Vec<String>>();
-        println!("ca bundle cert subject name {:?}", subject_name.join(","));
-        println!("ca bundle cert issuer name {:?}", issuer_name.join(","));
-    }
 
     //TODO: should be issuer sig & issuer sig_structure
     let x509_signature = cert.signature.raw_bytes();
@@ -94,7 +111,6 @@ pub fn verify(
         .encode_to_vec(&mut sig_structure_x509)
         .expect("cert to der failed");
     println!("sig_structure_x509: {:?}", sig_structure_x509);
-
 
     //BUGissuer_public_key:  verify fails here, one of 3 values must be wrong
     issuer_public_key
@@ -172,7 +188,7 @@ pub fn verify(
 
 //BUG: doesn't work consistenty because no_std expect fixed size arrays but
 // remote attestation is of variable size
-pub fn parse_cbor_document(document: &[u8]) -> Result<AttestationDocument, ()> {
+pub fn parse_cbor_document(document: &[u8]) -> Result<AttestationDocument, String> {
     use serde_cbor;
     let document: serde_cbor::Value = serde_cbor::from_slice(&document).expect("");
 
@@ -210,16 +226,31 @@ pub fn parse_cbor_document(document: &[u8]) -> Result<AttestationDocument, ()> {
         _ => panic!("Failed to decode CBOR payload:{:?}", payload),
     };
 
-    let ca_bundle = payload
-        .get(&serde_cbor::Value::Text("cabundle".try_into().unwrap()))
-        .expect("ca_bundle not found");
-
-    let ca_bundle_bytes: [u8; 2752] = serde_cbor::to_vec(&ca_bundle)
-        .expect("failed to parse ca_bundle")
-        .try_into()
-        .expect("error slice ca_bundle");
-
-    println!("length of ca_bundle: {:?}", ca_bundle_bytes.len());
+    let cabundle: Vec<Vec<u8>> = match payload.get(&serde_cbor::Value::Text("cabundle".to_string()))
+    {
+        Some(serde_cbor::Value::Array(outer_vec)) => {
+            let mut ret_vec: Vec<Vec<u8>> = Vec::new();
+            for this_vec in outer_vec.iter() {
+                match this_vec {
+                    serde_cbor::Value::Bytes(inner_vec) => {
+                        ret_vec.push(inner_vec.to_vec());
+                    }
+                    _ => {
+                        return Err(format!(
+                            "AttestationVerifier::parse_payload inner_vec is wrong type"
+                        ))
+                    }
+                }
+            }
+            ret_vec
+        }
+        _ => {
+            return Err(format!(
+                "AttestationVerifier::parse_payload cabundle is wrong type or not present:{:?}",
+                payload.get(&serde_cbor::Value::Text("cabundle".to_string()))
+            ))
+        }
+    };
 
     let certificate = payload
         .get(&serde_cbor::Value::Text("certificate".try_into().unwrap()))
@@ -246,9 +277,7 @@ pub fn parse_cbor_document(document: &[u8]) -> Result<AttestationDocument, ()> {
         certificate: certiricate_bytes[3..]
             .try_into()
             .expect("certificate slice with incorrect length"),
-        ca_bundle: ca_bundle_bytes
-            .try_into()
-            .expect("ca_bundle slice with incorrect length"),
+        ca_bundle: cabundle,
     })
 }
 
@@ -457,34 +486,6 @@ pub fn parse_cbor_document(document: &[u8]) -> Result<AttestationDocument, ()> {
 //         .map_err(|e| format!("Failed to decode base64: {}", e))
 // }
 
-//use rustls_pemfile::{certs, pkcs8_private_keys};
-
-fn extract_certificates_from_der(der_bundle: &[u8]) -> Vec<Certificate> {
-    let mut certificates = Vec::new();
-    let mut offset = 0;
-
-    while offset < der_bundle.len() {
-        let mut temp_offset = offset;
-        while temp_offset < der_bundle.len() {
-            match Certificate::from_der(&der_bundle[offset..temp_offset]) {
-                Ok(cert) => {
-                    certificates.push(cert.clone());
-                    offset = temp_offset;
-                    break;
-                }
-                Err(_) => {
-                    temp_offset += 1;
-                }
-            }
-        }
-        if temp_offset == der_bundle.len() {
-            offset += 1;
-        }
-    }
-
-    certificates
-}
-
 #[cfg(test)]
 mod tests {
 
@@ -504,7 +505,7 @@ mod tests {
             &attestation_document.signature,
             &attestation_document.payload,
             &attestation_document.certificate,
-            &attestation_document.ca_bundle,
+            attestation_document.ca_bundle,
         )
         .expect("remote attestation verification failed");
     }
