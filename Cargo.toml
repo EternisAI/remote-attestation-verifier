@@ -25,3 +25,6 @@ p384 = { version = "0.13.0", default-features = false, features = [
     "sha384",
 ] }
 #openssl = "0.10.66"
+
+rustls-pemfile = { version = "2.1.2", features = ["std"] }
+rustls = { version = "0.20.4", features = ["dangerous_configuration"] }
