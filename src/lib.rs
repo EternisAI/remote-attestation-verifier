@@ -35,6 +35,10 @@ pub struct Payload {
     pub public_key: Option<Vec<u8>>,
     pub certificate: Vec<u8>,
     pub cabundle: Vec<Vec<u8>>,
+    pub nonce: Option<Vec<u8>>,
+    pub user_data: Option<Vec<u8>>,
+    pub digest: String,
+    pub pcrs: Vec<Vec<u8>>,
 }
 
 use rustls_pemfile::{certs, pkcs8_private_keys};
@@ -43,9 +47,13 @@ pub fn verify(
     attestation_document: AttestationDocument,
     payload: Payload,
     trusted_root: Vec<u8>,
+    nonce: Vec<u8>,
 ) -> Result<(), p384::ecdsa::Error> {
     //OK: parse public key, convert from der to sec1 format
 
+    //verify nonce
+    let _nonce = payload.nonce;
+    println!("nonce {:?} {:?}", _nonce, nonce);
     //////////////////////////////////////////////////////////////////////////////
     //1. verify x509 cert
     let mut certs: Vec<rustls::Certificate> = Vec::new();
@@ -254,7 +262,7 @@ pub fn parse_payload(payload: &Vec<u8>) -> Result<Payload, String> {
                 ))
             }
         };
-    println!("nonce:{:?}", nonce);
+
     let user_data: Option<Vec<u8>> =
         match document_map.get(&serde_cbor::Value::Text("user_data".to_string())) {
             Some(serde_cbor::Value::Bytes(val)) => Some(val.to_vec()),
@@ -295,11 +303,15 @@ pub fn parse_payload(payload: &Vec<u8>) -> Result<Payload, String> {
             }
         };
     Ok(Payload {
-        module_id: module_id,
-        timestamp: timestamp,
-        public_key: public_key,
-        certificate: certificate,
-        cabundle: cabundle,
+        module_id,
+        timestamp,
+        public_key,
+        certificate,
+        cabundle,
+        nonce,
+        user_data,
+        digest,
+        pcrs,
     })
 }
 // pub fn fetch_attestation_document(&self, nonce: &str) -> Result<Vec<u8>, String> {
@@ -346,8 +358,9 @@ mod tests {
             .decode(AWS_TRUSTED_ROOT_CERT)
             .expect("failed to decode trusted_root");
 
+        let nonce = base64::decode("").expect("decode nonce failed");
         let payload = parse_payload(&attestation_document.payload).expect("parse payload failed");
-        verify(attestation_document, payload, trusted_root)
+        verify(attestation_document, payload, trusted_root, nonce)
             .expect("remote attestation verification failed");
     }
 }
