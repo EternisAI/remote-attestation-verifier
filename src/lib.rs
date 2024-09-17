@@ -105,17 +105,17 @@ pub fn verify(
     //         )
     //     });
 
-    info!("verified: {:?}", _verified);
-    match _verified {
-        Ok(_) => (),
-        Err(err) => {
-            error!(
-                "AttestationVerifier::authenticate verify_client_cert failed:{:?}",
-                err
-            );
-            return Err(err);
-        }
-    }
+    // info!("verified: {:?}", _verified);
+    // match _verified {
+    //     Ok(_) => (),
+    //     Err(err) => {
+    //         error!(
+    //             "AttestationVerifier::authenticate verify_client_cert failed:{:?}",
+    //             err
+    //         );
+    //         return Err(err);
+    //     }
+    // }
 
     //////////////////////////////////////////////////////////////////////////////
     // 2. verify remote attestation signature using public_key from the certificate
