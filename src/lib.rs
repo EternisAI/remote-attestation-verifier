@@ -36,13 +36,12 @@ pub struct Payload {
 }
 
 pub fn verify(
-    _protected: &[u8],
-    _signature: &[u8],
-    _payload: &[u8],
-    _certificate: &[u8],
+    attestation_document: AttestationDocument,
+    payload: Payload,
 ) -> Result<(), p384::ecdsa::Error> {
     //OK: parse public key, convert from der to sec1 format
-    let cert = x509_cert::Certificate::from_der(_certificate).expect("decode x509 cert failed");
+    let cert =
+        x509_cert::Certificate::from_der(&payload.certificate).expect("decode x509 cert failed");
 
     //////////////////////////////////////////////////////////////////////////////
     //1. verify x509 cert signature using x509_cert crate
@@ -54,10 +53,6 @@ pub fn verify(
 
     //NOTE: issuer cert is extracted from the cabundle (check main branch to find the code to extract the certs from cabundle object)
     //TODO: next step: extract issuer signature cabundle object iof hardcoded
-
-    let cabundle = parse_payload(&_payload.to_vec()).expect("Fale to parse payload");
-
-    println!("cabundle: {:?}", cabundle);
 
     let issuer_pem = "MIICvzCCAkSgAwIBAgIUXfCzGrCNSNDTS+L1DQQA9CBMKNwwCgYIKoZIzj0EAwMwgYkxPDA6BgNVBAMMM2Y3NWZiMzQ0NzZhOTJhODcuem9uYWwudXMtZWFzdC0xLmF3cy5uaXRyby1lbmNsYXZlczEMMAoGA1UECwwDQVdTMQ8wDQYDVQQKDAZBbWF6b24xCzAJBgNVBAYTAlVTMQswCQYDVQQIDAJXQTEQMA4GA1UEBwwHU2VhdHRsZTAeFw0yNDA5MTMxNDIzNTBaFw0yNDA5MTQxNDIzNTBaMIGOMQswCQYDVQQGEwJVUzETMBEGA1UECAwKV2FzaGluZ3RvbjEQMA4GA1UEBwwHU2VhdHRsZTEPMA0GA1UECgwGQW1hem9uMQwwCgYDVQQLDANBV1MxOTA3BgNVBAMMMGktMGJiZjFiZmUyMzJiOGMyY2UudXMtZWFzdC0xLmF3cy5uaXRyby1lbmNsYXZlczB2MBAGByqGSM49AgEGBSuBBAAiA2IABF7SGcHdkRbzl/tGMXHBgJ88sy+HTekW+lomScVSEXYB1giAC6eQgElex/q78JTxuj/k7BV83GfjKE5BS5Bdlohfb3b/yA52MLQubQGAYLSZhBGZmRBaEleTF6r0381CgqNmMGQwEgYDVR0TAQH/BAgwBgEB/wIBADAOBgNVHQ8BAf8EBAMCAgQwHQYDVR0OBBYEFBvZFAgI1uf1KLtxVdsv0Zeh+HFMMB8GA1UdIwQYMBaAFFRGyCn8tZshs/IN+qolNuLZ48fmMAoGCCqGSM49BAMDA2kAMGYCMQDWFeTovh3hlMUu+/nEXCCTKs/0NftxY2s+BXSNFUki8V+LAYNeARuv2FpWHIWR9EECMQCNqJQe507gy1zFEy6loraps1Ohbz9rVETmbRvqekvcYb0KCq9uJMeKaWzgnWWD0wI=";
     let issuer_der = STANDARD.decode(issuer_pem).expect("Failed to decode PEM");
@@ -161,18 +156,19 @@ pub fn verify(
     let verifying_key = VerifyingKey::from_sec1_bytes(&public_key).expect("Invalid public key");
 
     // Create a Signature object from the raw signature bytes
-    let signature = Signature::from_slice(_signature).expect("Invalid signature");
+    let signature =
+        Signature::from_slice(&attestation_document.signature).expect("Invalid signature");
 
     //OK: construct cosign structure
     const HEADER: [u8; 13] = [132, 106, 83, 105, 103, 110, 97, 116, 117, 114, 101, 49, 68];
-    let protected = _protected;
+    let protected = attestation_document.protected;
 
-    let payload_length_bytes: u8 = (_payload.len() - 4446 + 94)
+    let payload_length_bytes: u8 = (attestation_document.payload.len() - 4446 + 94)
         .try_into()
         .expect("payload length bytes conversion failed");
 
     let filler: [u8; 4] = [64, 89, 17, payload_length_bytes];
-    let payload = _payload;
+    let payload = attestation_document.payload;
 
     let sign_structure = [
         HEADER.as_ref(),
@@ -411,104 +407,6 @@ mod tests {
             parse_document(&document_data).expect("parse cbor document failed");
 
         let payload = parse_payload(&attestation_document.payload).expect("parse payload failed");
-        verify(
-            &attestation_document.protected,
-            &attestation_document.signature,
-            &attestation_document.payload,
-            &payload.certificate,
-        )
-        .expect("remote attestation verification failed");
+        verify(attestation_document, payload).expect("remote attestation verification failed");
     }
-
-    #[test]
-    fn test_verify_from_string() {
-        let protected = "oQE4Ig==";
-        let payload=
-              "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";
-        let signature=
-              "HWyreQwkmjQJtUJuGbmVU5uUc4kDMXfpStnpCMG5O8W2WKTdR3+u7L/IwdyZHpjh5cen+VXTuY+mgmTK7lQN3LN/OeZ9Lgsw/EgBwrrnARrjjAesnLV/fUocmppcexeS";
-        let certificate=
-              "MIICezCCAgGgAwIBAgIQAZG6NcnRt3oAAAAAZuD0QTAKBggqhkjOPQQDAzCBjjELMAkGA1UEBhMCVVMxEzARBgNVBAgMCldhc2hpbmd0b24xEDAOBgNVBAcMB1NlYXR0bGUxDzANBgNVBAoMBkFtYXpvbjEMMAoGA1UECwwDQVdTMTkwNwYDVQQDDDBpLTBiYmYxYmZlMjMyYjhjMmNlLnVzLWVhc3QtMS5hd3Mubml0cm8tZW5jbGF2ZXMwHhcNMjQwOTExMDEzNzAyWhcNMjQwOTExMDQzNzA1WjCBkzELMAkGA1UEBhMCVVMxEzARBgNVBAgMCldhc2hpbmd0b24xEDAOBgNVBAcMB1NlYXR0bGUxDzANBgNVBAoMBkFtYXpvbjEMMAoGA1UECwwDQVdTMT4wPAYDVQQDDDVpLTBiYmYxYmZlMjMyYjhjMmNlLWVuYzAxOTFiYTM1YzlkMWI3N2EudXMtZWFzdC0xLmF3czB2MBAGByqGSM49AgEGBSuBBAAiA2IABAnKrHDrDAl7Bl4WGTmv6OY2aypBRebPj9LZ2yTqdBikJyGYXkbqJaVuRJNq7PT3Vr8zEh2j54ZcjGt+fhPe8O23kTbeba+TJH/4ZaXtjl28acsvRdkX0GVNg02pccq9ZqMdMBswDAYDVR0TAQH/BAIwADALBgNVHQ8EBAMCBsAwCgYIKoZIzj0EAwMDaAAwZQIxAMtJjYJp2Hd1vHjD2UCFicDOMbM0UgAgMhUowJXJ7MeLIMDgcHF1JsDAvMwRZvZL1AIwZyMkmlrINRTZn59oMBtss7aj9iQ5HBUizZKwWG1+QtFJp+SWcpfGqrUZH/SKnd+Q";
-
-        let protected = base64::decode(protected).expect("failed to decode protected");
-        let signature = base64::decode(signature).expect("failed to decode signature");
-        let payload = base64::decode(payload).expect("failed to decode payload");
-        let certificate = base64::decode(certificate).expect("failed to decode certificate");
-
-        // println!("protected: {:?}", protected.len());
-        // println!("signature: {:?}", signature.len());
-        // println!("payload: {:?}", payload.len());
-        // println!("certificate: {:?}", certificate.len());
-
-        verify(&protected, &signature, &payload, &certificate)
-            .expect("remote attestation verification failed");
-    }
-
-    // #[test]
-    // fn test_std() {
-    //     //OK: parse CBOR doc
-    //     //@note from url
-    //     // let attestation_verifier = AttestationVerifier::new(None, None);
-    //     // let nonce = "0000000000000000000000000000000000000001";
-    //     // let document_data = attestation_verifier
-    //     //     .fetch_attestation_document(nonce)
-    //     //     .map_err(|err| format!("Failed to fetch attestation document: {:?}", err))
-    //     //     .expect("Failed to fetch attestation document");
-    //     //println!("document_data: {:?}", base64::encode(document_data.clone()));
-    //     //@note from file, using STD though
-    //     // let document_data = std::fs::read_to_string("src/example_attestation")
-    //     //     .expect("Failed to read example_attestation file");
-    //     // let document_data =
-    //     //     STANDARD.decode(document_data.trim()).expect("Failed to decode base64 data");
-    //     //@note from array, using STD functions as well
-    //     let document_data = STANDARD.decode("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").expect("decode doc failed");
-    //     let (_protected, payload, _signature) =
-    //         parse(&document_data).expect("AttestationVerifier::authenticate parse failed");
-    //     println!("_protected: {:?}", payload);
-    //     println!("signature: {:?}", _signature);
-    //     println!("_protected: {:?}", _protected);
-    //     // Step 2. Exract the attestation document from the COSE_Sign1 structure
-    //     let document =
-    //         parse_payload(&payload).expect("AttestationVerifier::authenticate failed");
-    //     //OK: parse public key, convert from der to sec1 format
-    //     let cert = x509_cert::Certificate::from_der(&document.certificate).unwrap();
-    //     let public_key = cert
-    //         .tbs_certificate
-    //         .subject_public_key_info
-    //         .to_der()
-    //         .expect("public key der failed");
-    //     //println!("public key der: {:?}", public_key.clone());
-    //     //sec1 doesnt comprise der headers
-    //     let public_key = &public_key[public_key.len() - 97..];
-    //     //println!("public key sec1: {:?}", hex::encode(public_key));
-    //     //OK: public key valid
-    //     let verifying_key =
-    //         VerifyingKey::from_sec1_bytes(&public_key).expect("Invalid public key");
-    //     //OK: signature valid
-    //     //println!("signature: {:?}", _signature);
-    //     //let signature = Signature::from_bytes(&signature.).expect("Invalid signature");
-    //     // Create a Signature object from the raw signature bytes
-    //     let signature = Signature::from_slice(&_signature).expect("Invalid signature");
-    //     //OK: parse sig_bytes from doc
-    //     //correspond to Signature1D
-    //     let header = [132, 106, 83, 105, 103, 110, 97, 116, 117, 114, 101, 49, 68];
-    //     let protected = _protected;
-    //     //TODO: sometimes last byte is 96 sometimes 95, need to figure out why
-    //     let filler = [64, 89, 17, 96];
-    //     let payload = payload;
-    //     let sign_structure = [
-    //         header.as_ref(),
-    //         protected.as_ref(),
-    //         filler.as_ref(),
-    //         payload.as_ref(),
-    //     ]
-    //     .concat();
-    //     //println!("pcrs: {:?}", document.pcrs);
-    //     //OK:
-    //     // Verify the signature
-    //     verifying_key
-    //         .verify(&sign_structure, &signature)
-    //         .expect("Signature verification failed");
-    //     //assert!(result, "Signature verification failed");
-    // }
 }
