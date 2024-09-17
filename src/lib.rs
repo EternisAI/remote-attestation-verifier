@@ -46,11 +46,15 @@ use std::io::BufReader;
 pub fn verify(
     attestation_document: AttestationDocument,
     payload: Payload,
-    trusted_root: Vec<u8>,
     nonce: Vec<u8>,
+    trusted_root: Option<Vec<u8>>,
 ) -> Result<(), p384::ecdsa::Error> {
-    //OK: parse public key, convert from der to sec1 format
-
+    let trusted_root = match trusted_root {
+        Some(root) => root,
+        None => STANDARD
+            .decode(AWS_TRUSTED_ROOT_CERT)
+            .expect("failed to decode trusted_root"),
+    };
     //////////////////////////////////////////////////////////////////////////////
     //1. verify nonce
     if payload.nonce != nonce {
@@ -362,15 +366,11 @@ mod tests {
         let attestation_document =
             parse_document(&document_data).expect("parse cbor document failed");
 
-        let trusted_root = STANDARD
-            .decode(AWS_TRUSTED_ROOT_CERT)
-            .expect("failed to decode trusted_root");
-
         let nonce =
             hex::decode("0000000000000000000000000000000000000001").expect("decode nonce failed");
 
         let payload = parse_payload(&attestation_document.payload).expect("parse payload failed");
-        verify(attestation_document, payload, trusted_root, nonce)
+        verify(attestation_document, payload, nonce, None)
             .expect("remote attestation verification failed");
     }
 }
