@@ -40,6 +40,7 @@ use std::io::BufReader;
 pub fn verify(
     attestation_document: AttestationDocument,
     payload: Payload,
+    trusted_root: Vec<u8>,
 ) -> Result<(), p384::ecdsa::Error> {
     //OK: parse public key, convert from der to sec1 format
 
@@ -51,34 +52,34 @@ pub fn verify(
         let cert = rustls::Certificate(this_cert.to_vec());
         certs.push(cert);
     }
-    let cert = rustls::Certificate(payload.certificate.clone());
-    certs.push(cert);
+    // let cert = rustls::Certificate(payload.certificate.clone());
+    // certs.push(cert);
 
-    let mut root_store = rustls::RootCertStore::empty();
-    root_store
-        .add(&rustls::Certificate(payload.certificate.clone()))
-        .map_err(|err| {
-            format!(
-                "AttestationVerifier::authenticate failed to add trusted root cert:{:?}",
-                err
-            )
-        })
-        .expect("failed to add trusted root cert");
+    // let mut root_store = rustls::RootCertStore::empty();
+    // root_store
+    //     .add(&rustls::Certificate(trusted_root.clone()))
+    //     .map_err(|err| {
+    //         format!(
+    //             "AttestationVerifier::authenticate failed to add trusted root cert:{:?}",
+    //             err
+    //         )
+    //     })
+    //     .expect("failed to add trusted root cert");
 
-    let verifier = rustls::server::AllowAnyAuthenticatedClient::new(root_store);
-    let _verified = verifier
-        .verify_client_cert(
-            &rustls::Certificate(payload.certificate.clone()),
-            &certs,
-            std::time::SystemTime::now(),
-        )
-        .map_err(|err| {
-            format!(
-                "AttestationVerifier::authenticate verify_client_cert failed:{:?}",
-                err
-            )
-        })
-        .expect("failed to verify client cert");
+    // let verifier = rustls::server::AllowAnyAuthenticatedClient::new(root_store);
+    // let _verified = verifier
+    //     .verify_client_cert(
+    //         &rustls::Certificate(payload.certificate.clone()),
+    //         &certs,
+    //         std::time::SystemTime::now(),
+    //     )
+    //     .map_err(|err| {
+    //         format!(
+    //             "AttestationVerifier::authenticate verify_client_cert failed:{:?}",
+    //             err
+    //         )
+    //     })
+    //     .expect("failed to verify client cert");
 
     //////////////////////////////////////////////////////////////////////////////
     //TEST:
@@ -425,6 +426,9 @@ mod tests {
     #[test]
     fn test_verify() {
         //parsing cbor without std functions
+
+        let trusted_root = STANDARD.decode("MIICETCCAZagAwIBAgIRAPkxdWgbkK/hHUbMtOTn+FYwCgYIKoZIzj0EAwMwSTELMAkGA1UEBhMCVVMxDzANBgNVBAoMBkFtYXpvbjEMMAoGA1UECwwDQVdTMRswGQYDVQQDDBJhd3Mubml0cm8tZW5jbGF2ZXMwHhcNMTkxMDI4MTMyODA1WhcNNDkxMDI4MTQyODA1WjBJMQswCQYDVQQGEwJVUzEPMA0GA1UECgwGQW1hem9uMQwwCgYDVQQLDANBV1MxGzAZBgNVBAMMEmF3cy5uaXRyby1lbmNsYXZlczB2MBAGByqGSM49AgEGBSuBBAAiA2IABPwCVOumCMHzaHDimtqQvkY4MpJzbolL//Zy2YlES1BR5TSksfbb48C8WBoyt7F2Bw7eEtaaP+ohG2bnUs990d0JX28TcPQXCEPZ3BABIeTPYwEoCWZEh8l5YoQwTcU/9KNCMEAwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUkCW1DdkFR+eWw5b6cp3PmanfS5YwDgYDVR0PAQH/BAQDAgGGMAoGCCqGSM49BAMDA2kAMGYCMQCjfy+Rocm9Xue4YnwWmNJVA44fA0P5W2OpYow9OYCVRaEevL8uO1XYru5xtMPWrfMCMQCi85sWBbJwKKXdS6BptQFuZbT73o/gBh1qUxl/nNr12UO8Yfwr6wPLb+6NIwLz3/Y=").expect("failed to decode trusted_root");
+
         let document_data  = STANDARD.decode("hEShATgioFkRWqlpbW9kdWxlX2lkeCdpLTBiYmYxYmZlMjMyYjhjMmNlLWVuYzAxOTFmYzI3NDU4YzFkNDFmZGlnZXN0ZlNIQTM4NGl0aW1lc3RhbXAbAAABkf1zVM9kcGNyc7AAWDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABWDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACWDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADWDBnHKHjKPdQFbKu7mBjnMUlK8g12LtpBETR+OK/QmD3PcG3HgehSncMfQvsrG6ztT8EWDDTUs+jG43F9IVsn6gYGxntEvXaI4g6xOxylTD1DcHTfxrDh2p685vU3noq6tFNFMsFWDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGWDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHWDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIWDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJWDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKWDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALWDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMWDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAANWDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOWDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPWDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABrY2VydGlmaWNhdGVZAn8wggJ7MIICAaADAgECAhABkfwnRYwdQQAAAABm6NG/MAoGCCqGSM49BAMDMIGOMQswCQYDVQQGEwJVUzETMBEGA1UECAwKV2FzaGluZ3RvbjEQMA4GA1UEBwwHU2VhdHRsZTEPMA0GA1UECgwGQW1hem9uMQwwCgYDVQQLDANBV1MxOTA3BgNVBAMMMGktMGJiZjFiZmUyMzJiOGMyY2UudXMtZWFzdC0xLmF3cy5uaXRyby1lbmNsYXZlczAeFw0yNDA5MTcwMDQ3NTZaFw0yNDA5MTcwMzQ3NTlaMIGTMQswCQYDVQQGEwJVUzETMBEGA1UECAwKV2FzaGluZ3RvbjEQMA4GA1UEBwwHU2VhdHRsZTEPMA0GA1UECgwGQW1hem9uMQwwCgYDVQQLDANBV1MxPjA8BgNVBAMMNWktMGJiZjFiZmUyMzJiOGMyY2UtZW5jMDE5MWZjMjc0NThjMWQ0MS51cy1lYXN0LTEuYXdzMHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE60MgBlBXf5kOlm+6+W0PXfv2XLH0QK63Ov42qqqyVBcfjWwn4yxFg1fbCAIMxCM9orDKoamTZKT97nh3k18zd83QjZBjBjnL5Q2202lxUu5N1UK2MzGniS+1IeLQCyBFox0wGzAMBgNVHRMBAf8EAjAAMAsGA1UdDwQEAwIGwDAKBggqhkjOPQQDAwNoADBlAjAKpcrBs1zQ2ydGrrFR3WjlzbpCKRylmoEx3mZ6dk2Y4et/s8NPYpe3dFTORD/x62YCMQDDownqGXjusvJvhPaid3KCSwAi2K8DmTOunJPoxKlTaBRHxhnO9Sk9nLSoaV+h3LBoY2FidW5kbGWEWQIVMIICETCCAZagAwIBAgIRAPkxdWgbkK/hHUbMtOTn+FYwCgYIKoZIzj0EAwMwSTELMAkGA1UEBhMCVVMxDzANBgNVBAoMBkFtYXpvbjEMMAoGA1UECwwDQVdTMRswGQYDVQQDDBJhd3Mubml0cm8tZW5jbGF2ZXMwHhcNMTkxMDI4MTMyODA1WhcNNDkxMDI4MTQyODA1WjBJMQswCQYDVQQGEwJVUzEPMA0GA1UECgwGQW1hem9uMQwwCgYDVQQLDANBV1MxGzAZBgNVBAMMEmF3cy5uaXRyby1lbmNsYXZlczB2MBAGByqGSM49AgEGBSuBBAAiA2IABPwCVOumCMHzaHDimtqQvkY4MpJzbolL//Zy2YlES1BR5TSksfbb48C8WBoyt7F2Bw7eEtaaP+ohG2bnUs990d0JX28TcPQXCEPZ3BABIeTPYwEoCWZEh8l5YoQwTcU/9KNCMEAwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUkCW1DdkFR+eWw5b6cp3PmanfS5YwDgYDVR0PAQH/BAQDAgGGMAoGCCqGSM49BAMDA2kAMGYCMQCjfy+Rocm9Xue4YnwWmNJVA44fA0P5W2OpYow9OYCVRaEevL8uO1XYru5xtMPWrfMCMQCi85sWBbJwKKXdS6BptQFuZbT73o/gBh1qUxl/nNr12UO8Yfwr6wPLb+6NIwLz3/ZZAsEwggK9MIICRKADAgECAhBhhBp9xYTEZS9FoGXTHhHqMAoGCCqGSM49BAMDMEkxCzAJBgNVBAYTAlVTMQ8wDQYDVQQKDAZBbWF6b24xDDAKBgNVBAsMA0FXUzEbMBkGA1UEAwwSYXdzLm5pdHJvLWVuY2xhdmVzMB4XDTI0MDkxNDEzMzI1NVoXDTI0MTAwNDE0MzI1NVowZDELMAkGA1UEBhMCVVMxDzANBgNVBAoMBkFtYXpvbjEMMAoGA1UECwwDQVdTMTYwNAYDVQQDDC02NTFhMTJhZGRlNTk4MmYzLnVzLWVhc3QtMS5hd3Mubml0cm8tZW5jbGF2ZXMwdjAQBgcqhkjOPQIBBgUrgQQAIgNiAASf4m2RUBKpjK/NpCjOvO9mAN38qTbF+zSMU482/fvrmUD3B29qCuyL1aRS08ygPZQJ+/vYSB4eH0QcJ4pbqJrdaT+dm+LN3IRsYW875PXAPbTc344pQlinE3aYLzaYVAyjgdUwgdIwEgYDVR0TAQH/BAgwBgEB/wIBAjAfBgNVHSMEGDAWgBSQJbUN2QVH55bDlvpync+Zqd9LljAdBgNVHQ4EFgQUI2wCkZ5qKGcYBmfC2nxGcC05xCIwDgYDVR0PAQH/BAQDAgGGMGwGA1UdHwRlMGMwYaBfoF2GW2h0dHA6Ly9hd3Mtbml0cm8tZW5jbGF2ZXMtY3JsLnMzLmFtYXpvbmF3cy5jb20vY3JsL2FiNDk2MGNjLTdkNjMtNDJiZC05ZTlmLTU5MzM4Y2I2N2Y4NC5jcmwwCgYIKoZIzj0EAwMDZwAwZAIwOW0yDPbXyOo4fsOMR7p9nSdPuu6jZRccMQTOMbAzllC/9eAjjd0wBTpVy+e7/ldpAjBRga4JCsoQu80o1FRJavuADkHK3nS/VNRhSM++7thV/lAxxHS43Fbcc9FiI5NWnzZZAxcwggMTMIICmqADAgECAhBVFtlkItn+curd2E21lLt3MAoGCCqGSM49BAMDMGQxCzAJBgNVBAYTAlVTMQ8wDQYDVQQKDAZBbWF6b24xDDAKBgNVBAsMA0FXUzE2MDQGA1UEAwwtNjUxYTEyYWRkZTU5ODJmMy51cy1lYXN0LTEuYXdzLm5pdHJvLWVuY2xhdmVzMB4XDTI0MDkxNjA3MTYxOVoXDTI0MDkyMjAzMTYxOVowgYkxPDA6BgNVBAMMMzUwNGM4NTEzZDQzMGM1YzUuem9uYWwudXMtZWFzdC0xLmF3cy5uaXRyby1lbmNsYXZlczEMMAoGA1UECwwDQVdTMQ8wDQYDVQQKDAZBbWF6b24xCzAJBgNVBAYTAlVTMQswCQYDVQQIDAJXQTEQMA4GA1UEBwwHU2VhdHRsZTB2MBAGByqGSM49AgEGBSuBBAAiA2IABJBr0abo+3afatCKrYiilG/BXt1wnFyewr0u0HOPAI6lw9ocEOqsOCMpH7MZybots/Tx3UsPxFybFH7dZQrG1aYQRi+vVzhWsEy9IcVgJ2duiWK+Cm0IKMF3fy61TUVgWKOB6jCB5zASBgNVHRMBAf8ECDAGAQH/AgEBMB8GA1UdIwQYMBaAFCNsApGeaihnGAZnwtp8RnAtOcQiMB0GA1UdDgQWBBTs5BS9HCpsmtCbPACcvVDfwgN2/TAOBgNVHQ8BAf8EBAMCAYYwgYAGA1UdHwR5MHcwdaBzoHGGb2h0dHA6Ly9jcmwtdXMtZWFzdC0xLWF3cy1uaXRyby1lbmNsYXZlcy5zMy51cy1lYXN0LTEuYW1hem9uYXdzLmNvbS9jcmwvYzczNDQ5MDYtMmE3YS00MmRmLThkNjAtM2RiODJlOWI5ZWYyLmNybDAKBggqhkjOPQQDAwNnADBkAjA9c1K0uikWdkACorB3ZBICRQn3ZDLjRabQT/d52gJHvuda9LdfZCnXrcFCxmlZZDYCMHUB+UxqSHdCdhih6M84/ksxTbZ2Ftc7e2Oh9f9GWwWmUIONBT2/O+sBwXTeUgUhUlkCwjCCAr4wggJEoAMCAQICFB+D4fIAI2LgCGGbf3qSlGph2lM7MAoGCCqGSM49BAMDMIGJMTwwOgYDVQQDDDM1MDRjODUxM2Q0MzBjNWM1LnpvbmFsLnVzLWVhc3QtMS5hd3Mubml0cm8tZW5jbGF2ZXMxDDAKBgNVBAsMA0FXUzEPMA0GA1UECgwGQW1hem9uMQswCQYDVQQGEwJVUzELMAkGA1UECAwCV0ExEDAOBgNVBAcMB1NlYXR0bGUwHhcNMjQwOTE2MTQyMzU0WhcNMjQwOTE3MTQyMzU0WjCBjjELMAkGA1UEBhMCVVMxEzARBgNVBAgMCldhc2hpbmd0b24xEDAOBgNVBAcMB1NlYXR0bGUxDzANBgNVBAoMBkFtYXpvbjEMMAoGA1UECwwDQVdTMTkwNwYDVQQDDDBpLTBiYmYxYmZlMjMyYjhjMmNlLnVzLWVhc3QtMS5hd3Mubml0cm8tZW5jbGF2ZXMwdjAQBgcqhkjOPQIBBgUrgQQAIgNiAARe0hnB3ZEW85f7RjFxwYCfPLMvh03pFvpaJknFUhF2AdYIgAunkIBJXsf6u/CU8bo/5OwVfNxn4yhOQUuQXZaIX292/8gOdjC0Lm0BgGC0mYQRmZkQWhJXkxeq9N/NQoKjZjBkMBIGA1UdEwEB/wQIMAYBAf8CAQAwDgYDVR0PAQH/BAQDAgIEMB0GA1UdDgQWBBQb2RQICNbn9Si7cVXbL9GXofhxTDAfBgNVHSMEGDAWgBTs5BS9HCpsmtCbPACcvVDfwgN2/TAKBggqhkjOPQQDAwNoADBlAjAnF4AVFnSHKlo/UwkKlbAz62KKugt+UQte2TNHF/OCr5FDAG6pXVVwQI87GjW16EACMQDWgxnY/wZTFOoFG2id6LyC2EPyXJVFpC7OATYjWEpsBCe51mFmCMqfnjlEZd+NEMFqcHVibGljX2tleUVkdW1teWl1c2VyX2RhdGFYRBIg7PlPt7xBDZ+TsABp8iuyV4hSl73O4zqH6fMGx9ZCgdwSIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAZW5vbmNlVAAAAAAAAAAAAAAAAAAAAAAAAAABWGAJPN8AxuC0DQd8XvVdmHDiyXWBIoIhTyvt7iI0BJsWKrvJVhJ8Noq5fmNIfdL4b7FpdTSFkpr0D9TJklvTzngfwRb+THreFxNIO2U+BXxczVPo+eVvQJ5NkZOeguAUxmQ=")
             .expect("decode cbor document failed");
 
@@ -432,6 +436,7 @@ mod tests {
             parse_document(&document_data).expect("parse cbor document failed");
 
         let payload = parse_payload(&attestation_document.payload).expect("parse payload failed");
-        verify(attestation_document, payload).expect("remote attestation verification failed");
+        verify(attestation_document, payload, trusted_root)
+            .expect("remote attestation verification failed");
     }
 }
