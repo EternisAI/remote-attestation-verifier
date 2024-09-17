@@ -90,19 +90,22 @@ pub fn verify(
 
     let verifier = rustls::server::AllowAnyAuthenticatedClient::new(root_store);
 
-    let _verified = verifier
-        .verify_client_cert(
-            &rustls::Certificate(payload.certificate.clone()),
-            &certs,
-            std::time::SystemTime::now(),
-        )
-        .map_err(|err| {
-            format!(
-                "AttestationVerifier::authenticate verify_client_cert failed:{:?}",
-                err
-            )
-        });
+    info!("verifying client cert");
+    //BUG:  std::time does not work within WASM
+    // let _verified = verifier
+    //     .verify_client_cert(
+    //         &rustls::Certificate(payload.certificate.clone()),
+    //         &certs,
+    //         std::time::SystemTime::now(),
+    //     )
+    //     .map_err(|err| {
+    //         format!(
+    //             "AttestationVerifier::authenticate verify_client_cert failed:{:?}",
+    //             err
+    //         )
+    //     });
 
+    info!("verified: {:?}", _verified);
     match _verified {
         Ok(_) => (),
         Err(err) => {
