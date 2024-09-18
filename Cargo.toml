@@ -16,5 +16,7 @@ serde_with = { version = "1.9.4", default_features = false }
 aws-nitro-enclaves-cose = "0.5.2"
 openssl = "0.10.31"
 base64 = "0.22.1"
+hex = "0.4"
+rand = { version = "0.8", features = ["min_const_gen"] }
 rustls-pemfile = { version = "2.1.2", features = ["std"] }
 reqwest = { version = "0.10.10", features = ["blocking"] }
