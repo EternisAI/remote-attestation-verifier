@@ -15,6 +15,7 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use core::convert::TryInto;
 use p384::ecdsa::{Signature, VerifyingKey};
 use rsa::signature::Verifier;
+use rustls::{server::AllowAnyAuthenticatedClient, Certificate, RootCertStore};
 use std::collections::BTreeMap;
 use tracing::info;
 use x509_cert::der::Decode;
@@ -48,17 +49,17 @@ fn verify_x509_cert(
     certificate: Vec<u8>,
     unix_time: u64,
 ) -> Result<(), String> {
-    let mut certs: Vec<rustls::Certificate> = Vec::new();
+    let mut certs: Vec<Certificate> = Vec::new();
     for this_cert in cabundle.clone().iter().rev() {
-        let cert = rustls::Certificate(this_cert.to_vec());
+        let cert = Certificate(this_cert.to_vec());
         certs.push(cert);
     }
-    let cert = rustls::Certificate(certificate.clone());
-    certs.push(cert);
+    let cert = Certificate(certificate.clone());
+    certs.push(cert.clone());
 
-    let mut root_store = rustls::RootCertStore::empty();
+    let mut root_store = RootCertStore::empty();
     root_store
-        .add(&rustls::Certificate(trusted_root.clone()))
+        .add(&Certificate(trusted_root.clone()))
         .map_err(|err| {
             format!(
                 "AttestationVerifier::authenticate failed to add trusted root cert:{:?}",
@@ -67,7 +68,7 @@ fn verify_x509_cert(
         })
         .expect("failed to add trusted root cert");
 
-    let verifier = rustls::server::AllowAnyAuthenticatedClient::new(root_store);
+    let verifier = AllowAnyAuthenticatedClient::new(root_store);
 
     info!("verifying client cert");
 
@@ -75,7 +76,7 @@ fn verify_x509_cert(
     let duration = std::time::Duration::from_secs(unix_time);
     let datetime = std::time::UNIX_EPOCH + duration;
     let _verified = verifier
-        .verify_client_cert(&rustls::Certificate(certificate.clone()), &certs, datetime)
+        .verify_client_cert(&cert, &certs, datetime)
         .map_err(|err| {
             format!(
                 "AttestationVerifier::authenticate verify_client_cert failed:{:?}",
@@ -297,10 +298,7 @@ pub fn parse_payload(payload: &Vec<u8>) -> Result<Payload, String> {
             ))
         }
     };
-    for (i, pcr) in pcrs.iter().enumerate() {
-        let pcr_str = pcr.iter().map(|b| format!("{:02x}", b)).collect::<String>();
-        // println!("PCR {}: {}", i, pcr_str);
-    }
+
     let nonce = match document_map.get(&serde_cbor::Value::Text("nonce".to_string())) {
         Some(serde_cbor::Value::Bytes(val)) => val.to_vec(),
         _ => {
