@@ -1,0 +1,33 @@
+name: Build and Publish Rust Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_and_publish:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Build
+      run: cargo build --verbose
+
+    - name: Run tests
+      run: cargo test --verbose
+
+    - name: Publish to crates.io
+      uses: katyo/publish-crates@v1
+      with:
+        registry-token: ${{ secrets.CRATES_IO_TOKEN }}
