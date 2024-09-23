@@ -15,11 +15,10 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use core::convert::TryInto;
 use p384::ecdsa::{Signature, VerifyingKey};
 use rsa::signature::Verifier;
-use tracing::{error, info};
-use x509_cert::der;
+use std::collections::BTreeMap;
+use tracing::info;
 use x509_cert::der::Decode;
 use x509_cert::der::Encode;
-use x509_cert::Certificate;
 
 #[derive(Debug)]
 pub struct AttestationDocument {
@@ -43,39 +42,18 @@ pub struct Payload {
     pub pcrs: Vec<Vec<u8>>,
 }
 
-use rustls_pemfile::{certs, pkcs8_private_keys};
-use std::io::BufReader;
-pub fn verify(
-    attestation_document: AttestationDocument,
-    payload: Payload,
-    nonce: Vec<u8>,
+fn verify_x509_cert(
+    trusted_root: Vec<u8>,
+    cabundle: Vec<Vec<u8>>,
+    certificate: Vec<u8>,
     unix_time: u64,
-    trusted_root: Option<Vec<u8>>,
 ) -> Result<(), String> {
-    let trusted_root = match trusted_root {
-        Some(root) => root,
-        None => STANDARD
-            .decode(AWS_TRUSTED_ROOT_CERT)
-            .map_err(|err| format!("failed to decode trusted_root: {}", err))?,
-    };
-
-    //////////////////////////////////////////////////////////////////////////////
-    //1. verify nonce
-    if payload.nonce != nonce {
-        return Err("invalid nonce".to_string());
-    }
-
-    //////////////////////////////////////////////////////////////////////////////
-    //2. verify pcrs
-
-    //////////////////////////////////////////////////////////////////////////////
-    //1. verify x509 cert
     let mut certs: Vec<rustls::Certificate> = Vec::new();
-    for this_cert in payload.cabundle.clone().iter().rev() {
+    for this_cert in cabundle.clone().iter().rev() {
         let cert = rustls::Certificate(this_cert.to_vec());
         certs.push(cert);
     }
-    let cert = rustls::Certificate(payload.certificate.clone());
+    let cert = rustls::Certificate(certificate.clone());
     certs.push(cert);
 
     let mut root_store = rustls::RootCertStore::empty();
@@ -97,21 +75,23 @@ pub fn verify(
     let duration = std::time::Duration::from_secs(unix_time);
     let datetime = std::time::UNIX_EPOCH + duration;
     let _verified = verifier
-        .verify_client_cert(
-            &rustls::Certificate(payload.certificate.clone()),
-            &certs,
-            datetime,
-        )
+        .verify_client_cert(&rustls::Certificate(certificate.clone()), &certs, datetime)
         .map_err(|err| {
             format!(
                 "AttestationVerifier::authenticate verify_client_cert failed:{:?}",
                 err
             )
         })?;
+    Ok(())
+}
 
-    //////////////////////////////////////////////////////////////////////////////
-    // 2. verify remote attestation signature using public_key from the certificate
-    let cert = x509_cert::Certificate::from_der(&payload.certificate)
+fn verify_remote_attestation_signature(
+    protected: Vec<u8>,
+    signature: Vec<u8>,
+    certificate: Vec<u8>,
+    payload: Vec<u8>,
+) -> Result<(), String> {
+    let cert = x509_cert::Certificate::from_der(&certificate)
         .map_err(|err| format!("decode x509 cert failed: {}", err))?;
 
     let public_key = cert
@@ -123,18 +103,15 @@ pub fn verify(
     let public_key = &public_key[public_key.len() - 97..];
     let verifying_key = VerifyingKey::from_sec1_bytes(&public_key).expect("Invalid public key");
 
-    let signature =
-        Signature::from_slice(&attestation_document.signature).expect("Invalid signature");
+    let signature = Signature::from_slice(&signature).expect("Invalid signature");
 
     const HEADER: [u8; 13] = [132, 106, 83, 105, 103, 110, 97, 116, 117, 114, 101, 49, 68];
-    let protected = attestation_document.protected;
 
-    let payload_length_bytes: u8 = (attestation_document.payload.len() + 94 - 4446)
+    let payload_length_bytes: u8 = (payload.len() + 94 - 4446)
         .try_into()
         .expect("payload length bytes conversion failed");
 
     let filler: [u8; 4] = [64, 89, 17, payload_length_bytes];
-    let payload = attestation_document.payload;
 
     let sign_structure = [
         HEADER.as_ref(),
@@ -152,6 +129,49 @@ pub fn verify(
                 err
             )
         })
+}
+
+pub fn verify(
+    attestation_document: AttestationDocument,
+    payload: Payload,
+    nonce: Vec<u8>,
+    pcrs: Vec<Vec<u8>>,
+    trusted_root: Option<Vec<u8>>,
+    unix_time: u64,
+) -> Result<(), String> {
+    if payload.nonce != nonce {
+        return Err("invalid nonce".to_string());
+    }
+
+    for (i, pcr) in pcrs.iter().enumerate() {
+        if pcr != &vec![0 as u8; 48] && pcr != &payload.pcrs[i] {
+            return Err(format!("invalid pcr on index {}", i));
+        }
+    }
+
+    let trusted_root = match trusted_root {
+        Some(root) => root,
+        None => STANDARD
+            .decode(AWS_TRUSTED_ROOT_CERT)
+            .map_err(|err| format!("failed to decode trusted_root: {}", err))?,
+    };
+    verify_x509_cert(
+        trusted_root,
+        payload.cabundle,
+        payload.certificate.clone(),
+        unix_time,
+    )
+    .expect("x509 cert verification failed");
+
+    verify_remote_attestation_signature(
+        attestation_document.protected,
+        attestation_document.signature,
+        payload.certificate,
+        attestation_document.payload,
+    )
+    .expect("remote attestation signature verification failed");
+
+    Ok(())
 }
 
 pub fn parse_document(document_data: &Vec<u8>) -> Result<AttestationDocument, String> {
@@ -196,7 +216,6 @@ pub fn parse_document(document_data: &Vec<u8>) -> Result<AttestationDocument, St
     })
 }
 
-use std::collections::BTreeMap;
 pub fn parse_payload(payload: &Vec<u8>) -> Result<Payload, String> {
     let document_data: serde_cbor::Value = serde_cbor::from_slice(payload.as_slice())
         .map_err(|err| format!("document parse failed:{:?}", err))?;
@@ -342,30 +361,21 @@ pub fn parse_payload(payload: &Vec<u8>) -> Result<Payload, String> {
         pcrs,
     })
 }
-// pub fn fetch_attestation_document(&self, nonce: &str) -> Result<Vec<u8>, String> {
-//     use reqwest::blocking::Client;
-//     use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
-//     let url = format!("{}?nonce={}", self.enclave_endpoint, nonce);
-//     let mut headers = HeaderMap::new();
-//     headers.insert(USER_AGENT, HeaderValue::from_static("attestation-client"));
-//     let client = Client::builder()
-//         .danger_accept_invalid_certs(true)
-//         .default_headers(headers)
-//         .build()
-//         .map_err(|e| format!("Failed to build client: {}", e))?;
-//     let response = client
-//         .get(&url)
-//         .send()
-//         .map_err(|e| format!("Failed to send request: {}", e))?;
-//     if !response.status().is_success() {
-//         return Err(format!("Request failed with status: {}", response.status()));
-//     }
-//     let decoded_response = response
-//         .text()
-//         .map_err(|e| format!("Failed to read response body as text: {}", e))?;
-//     STANDARD.decode(decoded_response.trim())
-//         .map_err(|e| format!("Failed to decode base64: {}", e))
-// }
+
+pub fn parse_verify_with(
+    document_data: Vec<u8>,
+    nonce: Vec<u8>,
+    pcrs: Vec<Vec<u8>>,
+    unix_time: u64,
+) -> Result<(), String> {
+    let attestation_document = parse_document(&document_data).expect("parse cbor document failed");
+
+    let payload = parse_payload(&attestation_document.payload).expect("parse payload failed");
+
+    verify(attestation_document, payload, nonce, pcrs, None, unix_time)
+        .expect("remote attestation verification failed");
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {
@@ -374,22 +384,25 @@ mod tests {
     use hex;
     #[test]
     fn test_verify() {
-        //parsing cbor without std functions
-
         let unix_time = 1726606091;
 
         let document_data  = STANDARD.decode("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")
             .expect("decode cbor document failed");
 
-        let attestation_document =
-            parse_document(&document_data).expect("parse cbor document failed");
-
+        let mut pcrs = vec![vec![0; 48]; 16];
+        pcrs.insert(
+            3,
+            vec![
+                103, 28, 161, 227, 40, 247, 80, 21, 178, 174, 238, 96, 99, 156, 197, 37, 43, 200,
+                53, 216, 187, 105, 4, 68, 209, 248, 226, 191, 66, 96, 247, 61, 193, 183, 30, 7,
+                161, 74, 119, 12, 125, 11, 236, 172, 110, 179, 181, 63,
+            ]
+            .to_vec(),
+        );
         let nonce =
             hex::decode("0000000000000000000000000000000000000001").expect("decode nonce failed");
 
-        let payload = parse_payload(&attestation_document.payload).expect("parse payload failed");
-
-        verify(attestation_document, payload, nonce, unix_time, None)
-            .expect("remote attestation verification failed");
+        parse_verify_with(document_data, nonce, pcrs, unix_time)
+            .expect("decoding or verification failed");
     }
 }
