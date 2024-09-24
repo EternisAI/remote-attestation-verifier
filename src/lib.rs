@@ -20,6 +20,47 @@ use std::collections::BTreeMap;
 use tracing::info;
 use x509_cert::der::Decode;
 use x509_cert::der::Encode;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum VerificationError {
+    #[error("Invalid nonce")]
+    InvalidNonce,
+    #[error("Invalid PCR {0}")]
+    InvalidPCR(usize),
+    #[error("X509 certificate verification failed: {0}")]
+    X509CertVerificationFailed(String),
+    #[error("Signature verification failed: {0}")]
+    SignatureVerificationFailed(String),
+    #[error("Failed to decode trusted root: {0}")]
+    FailedToDecodeTrustedRoot(base64::DecodeError),
+    #[error("Payload length bytes conversion failed: {0}")]
+    PayloadLengthBytesConversionFailed(core::num::TryFromIntError),
+    #[error("Decode X509 certificate failed: {0}")]
+    DecodeX509CertFailed(String),
+    #[error("Public key DER failed: {0}")]
+    PublicKeyDerFailed(String),
+    #[error("Invalid public key: {0}")]
+    InvalidPublicKey(String),
+    #[error("Failed to add trusted root cert: {0}")]
+    FailedToAddTrustedRootCert(String),
+}
+
+#[derive(Debug, Error)]
+pub enum ParseError {
+    #[error("Parse document failed: {0}")]
+    ParseDocumentFailed(String),
+    #[error("Parse payload failed: {0}")]
+    ParsePayloadFailed(String),
+}
+
+#[derive(Debug, Error)]
+pub enum ParseVerificationError {
+    #[error("Parse error: {0}")]
+    ParseError(ParseError),
+    #[error("Verification error: {0}")]
+    VerificationError(VerificationError),
+}
 
 #[derive(Debug)]
 pub struct AttestationDocument {
@@ -48,7 +89,7 @@ fn verify_x509_cert(
     cabundle: Vec<Vec<u8>>,
     certificate: Vec<u8>,
     unix_time: u64,
-) -> Result<(), String> {
+) -> Result<(), VerificationError> {
     let mut certs: Vec<Certificate> = Vec::new();
     for this_cert in cabundle.clone().iter().rev() {
         let cert = Certificate(this_cert.to_vec());
@@ -60,13 +101,7 @@ fn verify_x509_cert(
     let mut root_store = RootCertStore::empty();
     root_store
         .add(&Certificate(trusted_root.clone()))
-        .map_err(|err| {
-            format!(
-                "AttestationVerifier::authenticate failed to add trusted root cert:{:?}",
-                err
-            )
-        })
-        .expect("failed to add trusted root cert");
+        .map_err(|err| VerificationError::FailedToAddTrustedRootCert(err.to_string()))?;
 
     let verifier = AllowAnyAuthenticatedClient::new(root_store);
 
@@ -77,12 +112,7 @@ fn verify_x509_cert(
     let datetime = std::time::UNIX_EPOCH + duration;
     let _verified = verifier
         .verify_client_cert(&cert, &certs, datetime)
-        .map_err(|err| {
-            format!(
-                "AttestationVerifier::authenticate verify_client_cert failed:{:?}",
-                err
-            )
-        })?;
+        .map_err(|err| VerificationError::X509CertVerificationFailed(err.to_string()))?;
     Ok(())
 }
 
@@ -91,18 +121,19 @@ fn verify_remote_attestation_signature(
     signature: Vec<u8>,
     certificate: Vec<u8>,
     payload: Vec<u8>,
-) -> Result<(), String> {
+) -> Result<(), VerificationError> {
     let cert = x509_cert::Certificate::from_der(&certificate)
-        .map_err(|err| format!("decode x509 cert failed: {}", err))?;
+        .map_err(|err| VerificationError::DecodeX509CertFailed(err.to_string()))?;
 
     let public_key = cert
         .tbs_certificate
         .subject_public_key_info
         .to_der()
-        .expect("public key der failed");
+        .map_err(|err| VerificationError::PublicKeyDerFailed(err.to_string()))?;
 
     let public_key = &public_key[public_key.len() - 97..];
-    let verifying_key = VerifyingKey::from_sec1_bytes(&public_key).expect("Invalid public key");
+    let verifying_key = VerifyingKey::from_sec1_bytes(&public_key)
+        .map_err(|err| VerificationError::InvalidPublicKey(err.to_string()))?;
 
     let signature = Signature::from_slice(&signature).expect("Invalid signature");
 
@@ -110,7 +141,7 @@ fn verify_remote_attestation_signature(
 
     let payload_length_bytes: u8 = (payload.len() + 94 - 4446)
         .try_into()
-        .expect("payload length bytes conversion failed");
+        .map_err(|err| VerificationError::PayloadLengthBytesConversionFailed(err))?;
 
     let filler: [u8; 4] = [64, 89, 17, payload_length_bytes];
 
@@ -124,12 +155,8 @@ fn verify_remote_attestation_signature(
 
     verifying_key
         .verify(&sign_structure, &signature)
-        .map_err(|err| {
-            format!(
-                "AttestationVerifier::authenticate verify x509 cert failed:{:?}",
-                err
-            )
-        })
+        .map_err(|err| VerificationError::SignatureVerificationFailed(err.to_string()))?;
+    Ok(())
 }
 
 pub fn verify(
@@ -139,14 +166,14 @@ pub fn verify(
     pcrs: Vec<Vec<u8>>,
     trusted_root: Option<Vec<u8>>,
     unix_time: u64,
-) -> Result<(), String> {
+) -> Result<(), VerificationError> {
     if payload.nonce != nonce {
-        return Err("invalid nonce".to_string());
+        return Err(VerificationError::InvalidNonce);
     }
 
     for (i, pcr) in pcrs.iter().enumerate() {
         if pcr != &vec![0 as u8; 48] && pcr != &payload.pcrs[i] {
-            return Err(format!("invalid pcr on index {}", i));
+            return Err(VerificationError::InvalidPCR(i));
         }
     }
 
@@ -154,7 +181,7 @@ pub fn verify(
         Some(root) => root,
         None => STANDARD
             .decode(AWS_TRUSTED_ROOT_CERT)
-            .map_err(|err| format!("failed to decode trusted_root: {}", err))?,
+            .map_err(|err| VerificationError::FailedToDecodeTrustedRoot(err))?,
     };
     verify_x509_cert(
         trusted_root,
@@ -162,7 +189,7 @@ pub fn verify(
         payload.certificate.clone(),
         unix_time,
     )
-    .expect("x509 cert verification failed");
+    .map_err(|err| VerificationError::X509CertVerificationFailed(err.to_string()))?;
 
     verify_remote_attestation_signature(
         attestation_document.protected,
@@ -170,14 +197,14 @@ pub fn verify(
         payload.certificate,
         attestation_document.payload,
     )
-    .expect("remote attestation signature verification failed");
+    .map_err(|err| VerificationError::SignatureVerificationFailed(err.to_string()))?;
 
     Ok(())
 }
 
-pub fn parse_document(document_data: &Vec<u8>) -> Result<AttestationDocument, String> {
+pub fn parse_document(document_data: &Vec<u8>) -> Result<AttestationDocument, ParseError> {
     let cbor: serde_cbor::Value = serde_cbor::from_slice(document_data)
-        .map_err(|err| format!("AttestationVerifier::parse from_slice failed:{:?}", err))?;
+        .map_err(|err| ParseError::ParseDocumentFailed(err.to_string()))?;
     let elements = match cbor {
         serde_cbor::Value::Array(elements) => elements,
         _ => panic!("AttestationVerifier::parse Unknown field cbor:{:?}", cbor),
@@ -217,16 +244,16 @@ pub fn parse_document(document_data: &Vec<u8>) -> Result<AttestationDocument, St
     })
 }
 
-pub fn parse_payload(payload: &Vec<u8>) -> Result<Payload, String> {
+pub fn parse_payload(payload: &Vec<u8>) -> Result<Payload, ParseError> {
     let document_data: serde_cbor::Value = serde_cbor::from_slice(payload.as_slice())
-        .map_err(|err| format!("document parse failed:{:?}", err))?;
+        .map_err(|err| ParseError::ParsePayloadFailed(err.to_string()))?;
     let document_map: BTreeMap<serde_cbor::Value, serde_cbor::Value> = match document_data {
         serde_cbor::Value::Map(map) => map,
         _ => {
-            return Err(format!(
+            return Err(ParseError::ParsePayloadFailed(format!(
                 "AttestationVerifier::parse_payload field ain't what it should be:{:?}",
                 document_data
-            ))
+            )))
         }
     };
     let module_id = match document_map.get(&serde_cbor::Value::Text(
@@ -234,77 +261,79 @@ pub fn parse_payload(payload: &Vec<u8>) -> Result<Payload, String> {
     )) {
         Some(serde_cbor::Value::Text(val)) => val.to_string(),
         _ => {
-            return Err(format!(
+            return Err(ParseError::ParsePayloadFailed(format!(
                 "AttestationVerifier::parse_payload module_id is wrong type or not present"
-            ))
+            )))
         }
     };
     let timestamp: i128 = match document_map.get(&serde_cbor::Value::Text("timestamp".to_string()))
     {
         Some(serde_cbor::Value::Integer(val)) => *val,
         _ => {
-            return Err(format!(
+            return Err(ParseError::ParsePayloadFailed(format!(
                 "AttestationVerifier::parse_payload timestamp is wrong type or not present"
-            ))
+            )))
         }
     };
     let timestamp: u64 = timestamp.try_into().map_err(|err| {
-        format!(
+        ParseError::ParsePayloadFailed(format!(
             "AttestationVerifier::parse_payload failed to convert timestamp to u64:{:?}",
             err
-        )
+        ))
     })?;
     let public_key: Vec<u8> =
         match document_map.get(&serde_cbor::Value::Text("public_key".to_string())) {
             Some(serde_cbor::Value::Bytes(val)) => val.to_vec(),
             Some(_null) => vec![],
             _ => {
-                return Err(format!(
+                return Err(ParseError::ParsePayloadFailed(format!(
                     "AttestationVerifier::parse_payload public_key is wrong type or not present"
-                ))
+                )))
             }
         };
     let certificate: Vec<u8> =
         match document_map.get(&serde_cbor::Value::Text("certificate".to_string())) {
             Some(serde_cbor::Value::Bytes(val)) => val.to_vec(),
             _ => {
-                return Err(format!(
+                return Err(ParseError::ParsePayloadFailed(format!(
                     "AttestationVerifier::parse_payload certificate is wrong type or not present"
-                ))
+                )))
             }
         };
     let pcrs: Vec<Vec<u8>> = match document_map.get(&serde_cbor::Value::Text("pcrs".to_string())) {
         Some(serde_cbor::Value::Map(map)) => {
             let mut ret_vec: Vec<Vec<u8>> = Vec::new();
             let num_entries: i128 = map.len().try_into().map_err(|err| {
-                format!(
+                ParseError::ParsePayloadFailed(format!(
                     "AttestationVerifier::parse_payload failed to convert pcrs len into i128:{:?}",
                     err
-                )
+                ))
             })?;
             for x in 0..num_entries {
                 match map.get(&serde_cbor::Value::Integer(x)) {
                     Some(serde_cbor::Value::Bytes(inner_vec)) => {
                         ret_vec.push(inner_vec.to_vec());
                     },
-                    _ => return Err(format!("AttestationVerifier::parse_payload pcrs inner vec is wrong type or not there?")),
+                _ => return Err(ParseError::ParsePayloadFailed(format!(
+                        "AttestationVerifier::parse_payload pcrs inner vec is wrong type or not there?"
+                    ))),
                 }
             }
             ret_vec
         }
         _ => {
-            return Err(format!(
+            return Err(ParseError::ParsePayloadFailed(format!(
                 "AttestationVerifier::parse_payload pcrs is wrong type or not present"
-            ))
+            )))
         }
     };
 
     let nonce = match document_map.get(&serde_cbor::Value::Text("nonce".to_string())) {
         Some(serde_cbor::Value::Bytes(val)) => val.to_vec(),
         _ => {
-            return Err(format!(
+            return Err(ParseError::ParsePayloadFailed(format!(
                 "AttestationVerifier::parse_payload nonce is wrong type or not present"
-            ))
+            )))
         }
     };
 
@@ -317,9 +346,9 @@ pub fn parse_payload(payload: &Vec<u8>) -> Result<Payload, String> {
     let digest: String = match document_map.get(&serde_cbor::Value::Text("digest".to_string())) {
         Some(serde_cbor::Value::Text(val)) => val.to_string(),
         _ => {
-            return Err(format!(
+            return Err(ParseError::ParsePayloadFailed(format!(
                 "AttestationVerifier::parse_payload digest is wrong type or not present"
-            ))
+            )))
         }
     };
     let cabundle: Vec<Vec<u8>> =
@@ -332,19 +361,19 @@ pub fn parse_payload(payload: &Vec<u8>) -> Result<Payload, String> {
                             ret_vec.push(inner_vec.to_vec());
                         }
                         _ => {
-                            return Err(format!(
+                            return Err(ParseError::ParsePayloadFailed(format!(
                                 "AttestationVerifier::parse_payload inner_vec is wrong type"
-                            ))
+                            )))
                         }
                     }
                 }
                 ret_vec
             }
             _ => {
-                return Err(format!(
+                return Err(ParseError::ParsePayloadFailed(format!(
                     "AttestationVerifier::parse_payload cabundle is wrong type or not present:{:?}",
                     document_map.get(&serde_cbor::Value::Text("cabundle".to_string()))
-                ))
+                )))
             }
         };
     Ok(Payload {
@@ -365,13 +394,15 @@ pub fn parse_verify_with(
     nonce: Vec<u8>,
     pcrs: Vec<Vec<u8>>,
     unix_time: u64,
-) -> Result<(), String> {
-    let attestation_document = parse_document(&document_data).expect("parse cbor document failed");
+) -> Result<(), ParseVerificationError> {
+    let attestation_document =
+        parse_document(&document_data).map_err(ParseVerificationError::ParseError)?;
 
-    let payload = parse_payload(&attestation_document.payload).expect("parse payload failed");
+    let payload =
+        parse_payload(&attestation_document.payload).map_err(ParseVerificationError::ParseError)?;
 
     verify(attestation_document, payload, nonce, pcrs, None, unix_time)
-        .expect("remote attestation verification failed");
+        .map_err(ParseVerificationError::VerificationError)?;
     Ok(())
 }
 
@@ -400,7 +431,9 @@ mod tests {
         let nonce =
             hex::decode("0000000000000000000000000000000000000001").expect("decode nonce failed");
 
-        parse_verify_with(document_data, nonce, pcrs, unix_time)
-            .expect("decoding or verification failed");
+        match parse_verify_with(document_data, nonce, pcrs, unix_time) {
+            Ok(_) => (),
+            Err(e) => panic!("parse_verify_with failed: {:?}", e.to_string()),
+        }
     }
 }
