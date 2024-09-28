@@ -11,9 +11,11 @@
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
+use rustls_pemfile::Item;
 use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::fmt::Write;
+use std::time::SystemTime;
 
 pub const DEFAULT_ENCLAVE_ENDPOINT: &str = "https://tlsn.eternis.ai/enclave/attestation";
 pub const AWS_ROOT_CERT_PEM: &str = include_str!("aws_root.pem");
@@ -21,6 +23,7 @@ pub const AWS_ROOT_CERT_PEM: &str = include_str!("aws_root.pem");
 // This is described in
 // https://docs.aws.amazon.com/ko_kr/enclaves/latest/user/verify-root.html
 // under the heading "Attestation document specification"
+#[derive(Debug)]
 pub struct AttestationDocument {
     pub module_id: String,
     pub timestamp: u64,
@@ -48,6 +51,20 @@ impl AttestationVerifier {
         Self { trusted_root_cert }
     }
 
+    pub fn from_pem(trusted_root_cert: &str) -> Result<Self, String> {
+        let cert = rustls_pemfile::read_one_from_slice(trusted_root_cert.as_bytes());
+        let cert = cert
+            .map_err(|e| format!("couldn't parse PEM input: {:?}", e))?
+            .ok_or("no items in PEM input".to_string())?
+            .0;
+
+        if let Item::X509Certificate(der) = cert {
+            Ok(AttestationVerifier::new(der.to_vec()))
+        } else {
+            Err("no certificate in PEM input".to_string())
+        }
+    }
+
     /// Fetches the attestation document from the enclave endpoint.
     ///
     /// # Arguments
@@ -57,7 +74,11 @@ impl AttestationVerifier {
     /// # Returns
     ///
     /// * `Result<Vec<u8>, String>` - A result containing the attestation document as a vector of bytes on success, or an error message on failure.
-    pub fn authenticate(&self, document_data: &[u8]) -> Result<AttestationDocument, String> {
+    pub fn authenticate(
+        &self,
+        document_data: &[u8],
+        time: SystemTime,
+    ) -> Result<AttestationDocument, String> {
         let root_cert = self.trusted_root_cert.clone();
 
         // Following the steps here: https://docs.aws.amazon.com/enclaves/latest/user/verify-root.html
@@ -93,7 +114,7 @@ impl AttestationVerifier {
             .verify_client_cert(
                 &rustls::Certificate(document.certificate.clone()),
                 &certs,
-                std::time::SystemTime::now(),
+                time,
             )
             .map_err(|err| {
                 format!(
@@ -387,6 +408,8 @@ pub fn fetch_attestation_document(
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, UNIX_EPOCH};
+
     use rand::Rng;
     use rustls_pemfile::Item;
 
@@ -394,12 +417,6 @@ mod tests {
 
     #[test]
     fn test_authenticate() {
-        // From file
-        // let document_data = std::fs::read_to_string("src/example_attestation")
-        //     .expect("Failed to read example_attestation file");
-        // let document_data =
-        //     base64::decode(document_data.trim()).expect("Failed to decode base64 data");
-
         // @note : nonce is 20 bytes and should be random in practice
         let nonce: [u8; 20] = rand::thread_rng().gen();
 
@@ -418,18 +435,41 @@ mod tests {
         let invalid_document_data = BASE64
             .decode(invalid_document_data.trim())
             .expect("Failed to decode base64 data");
-        let result = attestation_verifier.authenticate(&invalid_document_data);
+        let result = attestation_verifier.authenticate(&invalid_document_data, SystemTime::now());
 
         assert!(
             result.is_err(),
             "Authentication should fail with invalid data"
         );
 
+        // Test authentication from file
+        let document_data = std::fs::read_to_string("src/example_attestation")
+            .expect("Failed to read example_attestation file");
+        let document_data = BASE64
+            .decode(document_data.trim())
+            .expect("Failed to decode base64 data");
+        let result = attestation_verifier.authenticate(
+            &document_data,
+            UNIX_EPOCH
+                .checked_add(Duration::from_secs(1722458896))
+                .expect("UNIX time should be valid"),
+        );
+
+        assert!(
+            result.is_ok(),
+            "Authentication should succeed with valid file data and appropriate timestamp"
+        );
+
+        let result = attestation_verifier.authenticate(&document_data, SystemTime::now());
+        assert!(
+            result.is_err(),
+            "Authentication should fail with valid file data but invalid timestamp"
+        );
+
         // Test remote authentication
         let document_data = fetch_attestation_document(DEFAULT_ENCLAVE_ENDPOINT, nonce).unwrap();
-        let result = attestation_verifier.authenticate(&document_data);
+        let result = attestation_verifier.authenticate(&document_data, SystemTime::now());
 
-        println!("result:{:?}", result.as_ref().err());
         assert!(
             result.is_ok(),
             "Authentication should succeed with valid remote data"
@@ -447,7 +487,7 @@ mod tests {
             panic!("not a certificate");
         };
 
-        let result = invalid_attestation_verifier.authenticate(&document_data);
+        let result = invalid_attestation_verifier.authenticate(&document_data, SystemTime::now());
 
         println!("result:{:?}", result.as_ref().err());
         assert!(
