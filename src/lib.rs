@@ -19,7 +19,6 @@ use rustls::{server::AllowAnyAuthenticatedClient, Certificate, RootCertStore};
 use std::collections::BTreeMap;
 use thiserror::Error;
 use tracing::info;
-use wasm_bindgen::prelude::*;
 use x509_cert::der::Decode;
 use x509_cert::der::Encode;
 
