@@ -437,11 +437,12 @@ mod tests {
         let nonce =
             hex::decode("0000000000000000000000000000000000000000").expect("decode nonce failed");
 
-        let document = parse_document((&document_data));
+        let document = parse_document(&document_data).expect("parse document failed");
 
-        let payload = parse_payload(&document_data);
+        let payload = parse_payload(&document.payload).expect("parse payload failed");
 
-        println!("payload: {:?}", payload);
+        println!("pcrs {:?}", payload.pcrs);
+        println!("nonce {:?}", nonce);
 
         match parse_verify_with(document_data, nonce, pcrs, unix_time) {
             Ok(_) => (),
