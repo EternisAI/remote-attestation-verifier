@@ -315,6 +315,7 @@ pub fn parse_payload(payload: &Vec<u8>) -> Result<Payload, ParseError> {
                         ret_vec.push(inner_vec.to_vec());
                     }
                     _ => {
+                        //println!("PCR: None value");
                         // return Err(ParseError::ParsePayloadFailed(format!(
                         //     "AttestationVerifier::parse_payload pcrs inner vec is wrong type or not there?"
                         // )));
