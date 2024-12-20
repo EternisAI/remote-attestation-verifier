@@ -18,9 +18,16 @@ See here: https://github.com/brave/nitriding-daemon/blob/master/doc/http-api.md
 
 ## Compile to WebAssembly
 
+### Install wasm-bindgen cli
+
+```shell
+   cargo install wasm-bindgen-cli
+```
+
+### Compile to WebAssembly
+
 ```shell
    cargo build --target wasm32-unknown-unknown --release
-   cargo install wasm-bindgen-cli
    wasm-bindgen target/wasm32-unknown-unknown/release/remote_attestation_verifier.wasm --out-dir ./out --web
 ```
 

@@ -1,16 +1,15 @@
 /* tslint:disable */
 /* eslint-disable */
-export function verify_js(attestation_document: Uint8Array, payload: Uint8Array, nonce: Uint8Array, pcrs: Array<any>, trusted_root: Uint8Array | undefined, unix_time: bigint): void;
+export function verify_js(attestation_document: Uint8Array, nonce: Uint8Array, pcrs: Array<any>): boolean;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
-  readonly verify_js: (a: number, b: number, c: number, d: number, e: number, f: number, g: any, h: number, i: number, j: bigint) => [number, number];
+  readonly verify_js: (a: number, b: number, c: number, d: number, e: any) => number;
   readonly ring_core_0_17_8_bn_mul_mont: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
   readonly __wbindgen_export_0: WebAssembly.Table;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
-  readonly __externref_table_dealloc: (a: number) => void;
   readonly __wbindgen_start: () => void;
 }
 

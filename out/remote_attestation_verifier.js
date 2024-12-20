@@ -26,37 +26,19 @@ function passArray8ToWasm0(arg, malloc) {
     WASM_VECTOR_LEN = arg.length;
     return ptr;
 }
-
-function isLikeNone(x) {
-    return x === undefined || x === null;
-}
-
-function takeFromExternrefTable0(idx) {
-    const value = wasm.__wbindgen_export_0.get(idx);
-    wasm.__externref_table_dealloc(idx);
-    return value;
-}
 /**
  * @param {Uint8Array} attestation_document
- * @param {Uint8Array} payload
  * @param {Uint8Array} nonce
  * @param {Array<any>} pcrs
- * @param {Uint8Array | undefined} trusted_root
- * @param {bigint} unix_time
+ * @returns {boolean}
  */
-export function verify_js(attestation_document, payload, nonce, pcrs, trusted_root, unix_time) {
+export function verify_js(attestation_document, nonce, pcrs) {
     const ptr0 = passArray8ToWasm0(attestation_document, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
-    const ptr1 = passArray8ToWasm0(payload, wasm.__wbindgen_malloc);
+    const ptr1 = passArray8ToWasm0(nonce, wasm.__wbindgen_malloc);
     const len1 = WASM_VECTOR_LEN;
-    const ptr2 = passArray8ToWasm0(nonce, wasm.__wbindgen_malloc);
-    const len2 = WASM_VECTOR_LEN;
-    var ptr3 = isLikeNone(trusted_root) ? 0 : passArray8ToWasm0(trusted_root, wasm.__wbindgen_malloc);
-    var len3 = WASM_VECTOR_LEN;
-    const ret = wasm.verify_js(ptr0, len0, ptr1, len1, ptr2, len2, pcrs, ptr3, len3, unix_time);
-    if (ret[1]) {
-        throw takeFromExternrefTable0(ret[0]);
-    }
+    const ret = wasm.verify_js(ptr0, len0, ptr1, len1, pcrs);
+    return ret !== 0;
 }
 
 async function __wbg_load(module, imports) {
