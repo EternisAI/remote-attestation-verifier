@@ -173,8 +173,6 @@ pub fn verify(
 
     for (i, pcr) in pcrs.iter().enumerate() {
         if pcr != &vec![0 as u8; 48] && pcr != &payload.pcrs[i] {
-            println!("pcr: {:?}", pcr);
-            println!("payload.pcrs[i]: {:?}", payload.pcrs[i]);
             return Err(VerificationError::InvalidPCR(i));
         }
     }
@@ -314,11 +312,9 @@ pub fn parse_payload(payload: &Vec<u8>) -> Result<Payload, ParseError> {
             for x in 0..num_entries {
                 match map.get(&serde_cbor::Value::Integer(x)) {
                     Some(serde_cbor::Value::Bytes(inner_vec)) => {
-                        println!("pcr: {:?}", inner_vec);
                         ret_vec.push(inner_vec.to_vec());
                     }
                     _ => {
-                        println!("PCR: None value");
                         // return Err(ParseError::ParsePayloadFailed(format!(
                         //     "AttestationVerifier::parse_payload pcrs inner vec is wrong type or not there?"
                         // )));
@@ -439,6 +435,12 @@ mod tests {
         );
         let nonce =
             hex::decode("0000000000000000000000000000000000000000").expect("decode nonce failed");
+
+        let document = parse_document((&document_data));
+
+        let payload = parse_payload(&document_data);
+
+        println!("payload: {:?}", payload);
 
         match parse_verify_with(document_data, nonce, pcrs, unix_time) {
             Ok(_) => (),
