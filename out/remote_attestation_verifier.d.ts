@@ -8,8 +8,9 @@ export interface InitOutput {
   readonly memory: WebAssembly.Memory;
   readonly verify_js: (a: number, b: number, c: number, d: number, e: any) => number;
   readonly ring_core_0_17_8_bn_mul_mont: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
-  readonly __wbindgen_export_0: WebAssembly.Table;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
+  readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+  readonly __wbindgen_export_2: WebAssembly.Table;
   readonly __wbindgen_start: () => void;
 }
 
