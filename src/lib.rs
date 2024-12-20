@@ -412,6 +412,7 @@ pub fn parse_verify_with(
     Ok(())
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn verify_js(
     attestation_document: Vec<u8>,
