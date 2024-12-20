@@ -19,6 +19,7 @@ use rustls::{server::AllowAnyAuthenticatedClient, Certificate, RootCertStore};
 use std::collections::BTreeMap;
 use thiserror::Error;
 use tracing::info;
+use wasm_bindgen::prelude::*;
 use x509_cert::der::Decode;
 use x509_cert::der::Encode;
 
@@ -408,6 +409,35 @@ pub fn parse_verify_with(
 
     verify(attestation_document, payload, nonce, pcrs, None, unix_time)
         .map_err(ParseVerificationError::VerificationError)?;
+    Ok(())
+}
+
+#[wasm_bindgen]
+pub fn verify_js(
+    attestation_document: Vec<u8>,
+    payload: Vec<u8>,
+    nonce: Vec<u8>,
+    pcrs: js_sys::Array,
+    trusted_root: Option<Vec<u8>>,
+    unix_time: u64,
+) -> Result<(), JsValue> {
+    let pcrs: Vec<Vec<u8>> = pcrs
+        .iter()
+        .map(|item| js_sys::Uint8Array::new(&item).to_vec())
+        .collect();
+
+    let attestation_document =
+        parse_document(&attestation_document).expect("parse document failed");
+    let payload = parse_payload(&payload).expect("parse payload failed");
+    verify(
+        attestation_document,
+        payload,
+        nonce,
+        pcrs,
+        trusted_root,
+        unix_time,
+    )
+    .map_err(|err| JsValue::from_str(&err.to_string()))?;
     Ok(())
 }
 
