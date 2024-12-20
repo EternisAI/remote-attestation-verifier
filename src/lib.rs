@@ -415,6 +415,11 @@ pub fn parse_verify_with(
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn verify_js(attestation_document: Vec<u8>, nonce: Vec<u8>, pcrs: js_sys::Array) -> bool {
+    println!("verify_js");
+    println!("attestation_document: {:?}", attestation_document);
+    println!("nonce: {:?}", nonce);
+    println!("pcrs: {:?}", pcrs);
+
     let pcrs: Vec<Vec<u8>> = pcrs
         .iter()
         .map(|item| js_sys::Uint8Array::new(&item).to_vec())
