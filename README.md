@@ -12,9 +12,17 @@ If PCR values are zeroes it's probably because the nitro enclave is running in d
 
 ## How to test
 
-Retrieve an attestation document from your nitro enclave running nitriding daemon by querying /enclave/attestation endpoint.
+Retrieve an attestation document from your nitro enclave in base64 string format.
 
 See here: https://github.com/brave/nitriding-daemon/blob/master/doc/http-api.md
+
+## Compile to WebAssembly
+
+```shell
+   cargo build --target wasm32-unknown-unknown --release
+   cargo install wasm-bindgen-cli
+   wasm-bindgen target/wasm32-unknown-unknown/release/remote_attestation_verifier.wasm --out-dir ./out --web
+```
 
 ## More docs on AWS Nitro Enclaves and Attestation Documents
 
