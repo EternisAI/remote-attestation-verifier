@@ -33,5 +33,5 @@ js-sys = "0.3"
 getrandom = { version = "0.2.3", features = ["js"] }
 
 
-[lib]
-crate-type = ["cdylib"]
+# [lib]
+# crate-type = ["cdylib"]
