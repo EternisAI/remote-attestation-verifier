@@ -414,32 +414,20 @@ pub fn parse_verify_with(
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
-pub fn verify_js(
-    attestation_document: Vec<u8>,
-    payload: Vec<u8>,
-    nonce: Vec<u8>,
-    pcrs: js_sys::Array,
-    trusted_root: Option<Vec<u8>>,
-    unix_time: u64,
-) -> Result<(), JsValue> {
+pub fn verify_js(attestation_document: Vec<u8>, nonce: Vec<u8>, pcrs: js_sys::Array) -> bool {
     let pcrs: Vec<Vec<u8>> = pcrs
         .iter()
         .map(|item| js_sys::Uint8Array::new(&item).to_vec())
         .collect();
+    let unix_time = std::time::UNIX_EPOCH.elapsed().unwrap().as_secs();
+    let parsed_document = parse_document(&attestation_document).expect("parse document failed");
 
-    let attestation_document =
-        parse_document(&attestation_document).expect("parse document failed");
-    let payload = parse_payload(&payload).expect("parse payload failed");
-    verify(
-        attestation_document,
-        payload,
-        nonce,
-        pcrs,
-        trusted_root,
-        unix_time,
-    )
-    .map_err(|err| JsValue::from_str(&err.to_string()))?;
-    Ok(())
+    let payload = parse_payload(&parsed_document.payload).expect("parse payload failed");
+
+    let result = parse_verify_with(attestation_document, nonce, pcrs, unix_time)
+        .map_err(|err: ParseVerificationError| JsValue::from_str(&err.to_string()));
+
+    return result.is_ok();
 }
 
 #[cfg(test)]
