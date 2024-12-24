@@ -28,3 +28,4 @@ rustls = { version = "0.20.4" }
 hex = "0.4.3"
 tracing = "0.1.40"
 thiserror = "1.0.64"
+reqwest = { version = "0.12.9", features = ["blocking"] }
