@@ -62,7 +62,7 @@ pub enum ParseVerificationError {
     VerificationError(VerificationError),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AttestationDocument {
     pub protected: Vec<u8>,
     pub signature: Vec<u8>,
@@ -71,7 +71,7 @@ pub struct AttestationDocument {
 
 const AWS_TRUSTED_ROOT_CERT: &str = "MIICETCCAZagAwIBAgIRAPkxdWgbkK/hHUbMtOTn+FYwCgYIKoZIzj0EAwMwSTELMAkGA1UEBhMCVVMxDzANBgNVBAoMBkFtYXpvbjEMMAoGA1UECwwDQVdTMRswGQYDVQQDDBJhd3Mubml0cm8tZW5jbGF2ZXMwHhcNMTkxMDI4MTMyODA1WhcNNDkxMDI4MTQyODA1WjBJMQswCQYDVQQGEwJVUzEPMA0GA1UECgwGQW1hem9uMQwwCgYDVQQLDANBV1MxGzAZBgNVBAMMEmF3cy5uaXRyby1lbmNsYXZlczB2MBAGByqGSM49AgEGBSuBBAAiA2IABPwCVOumCMHzaHDimtqQvkY4MpJzbolL//Zy2YlES1BR5TSksfbb48C8WBoyt7F2Bw7eEtaaP+ohG2bnUs990d0JX28TcPQXCEPZ3BABIeTPYwEoCWZEh8l5YoQwTcU/9KNCMEAwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUkCW1DdkFR+eWw5b6cp3PmanfS5YwDgYDVR0PAQH/BAQDAgGGMAoGCCqGSM49BAMDA2kAMGYCMQCjfy+Rocm9Xue4YnwWmNJVA44fA0P5W2OpYow9OYCVRaEevL8uO1XYru5xtMPWrfMCMQCi85sWBbJwKKXdS6BptQFuZbT73o/gBh1qUxl/nNr12UO8Yfwr6wPLb+6NIwLz3/Y=";
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Payload {
     pub module_id: String,
     pub timestamp: u64,
@@ -174,20 +174,11 @@ pub fn verify(
     attestation_document: AttestationDocument,
     payload: Payload,
     nonce: Vec<u8>,
-    pcrs: Vec<Vec<u8>>,
     trusted_root: Option<Vec<u8>>,
     unix_time: u64,
 ) -> Result<(), VerificationError> {
     if payload.nonce != nonce {
         return Err(VerificationError::InvalidNonce);
-    }
-
-    for (i, pcr) in pcrs.iter().enumerate() {
-        if pcr != &vec![0 as u8; 48] && pcr != &payload.pcrs[i] {
-            println!("PCR: {:?}", pcr);
-            println!("Payload PCR: {:?}", payload.pcrs[i]);
-            return Err(VerificationError::InvalidPCR(i));
-        }
     }
 
     let trusted_root = match trusted_root {
@@ -410,18 +401,24 @@ pub fn parse_payload(payload: &Vec<u8>) -> Result<Payload, ParseError> {
 pub fn parse_verify_with(
     document_data: Vec<u8>,
     nonce: Vec<u8>,
-    pcrs: Vec<Vec<u8>>,
     unix_time: u64,
-) -> Result<(), ParseVerificationError> {
+) -> Result<(Payload, AttestationDocument), ParseVerificationError> {
     let attestation_document =
         parse_document(&document_data).map_err(ParseVerificationError::ParseError)?;
 
     let payload =
         parse_payload(&attestation_document.payload).map_err(ParseVerificationError::ParseError)?;
 
-    verify(attestation_document, payload, nonce, pcrs, None, unix_time)
-        .map_err(ParseVerificationError::VerificationError)?;
-    Ok(())
+    verify(
+        attestation_document.clone(),
+        payload.clone(),
+        nonce,
+        None,
+        unix_time,
+    )
+    .map_err(ParseVerificationError::VerificationError)?;
+
+    Ok((payload, attestation_document))
 }
 
 #[cfg(test)]
@@ -437,32 +434,16 @@ mod tests {
         let document_data  = STANDARD.decode("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")
             .expect("decode cbor document failed");
 
-        let mut pcrs = vec![vec![0; 48]; 16];
-        pcrs.insert(
-            2,
-            vec![
-                188, 109, 202, 67, 147, 86, 67, 5, 197, 24, 194, 57, 92, 78, 42, 197, 252, 17, 134,
-                180, 9, 10, 16, 151, 240, 200, 123, 218, 87, 21, 126, 187, 251, 229, 27, 170, 225,
-                226, 248, 246, 182, 238, 126, 250, 112, 30, 44, 146,
-            ]
-            .to_vec(),
-        );
-
-        let pcrs_base64 = base64::encode(&pcrs[2]);
-        println!("PCRs[2] in base64: {}", pcrs_base64);
-
         let nonce =
             hex::decode("0000000000000000000000000000000000000000").expect("decode nonce failed");
 
         let document = parse_document(&document_data).expect("parse document failed");
-
         let payload = parse_payload(&document.payload).expect("parse payload failed");
 
-        println!("pcrs {:?}", payload.pcrs);
-        println!("nonce {:?}", nonce);
-
-        match parse_verify_with(document_data, nonce, pcrs, unix_time) {
-            Ok(_) => (),
+        match parse_verify_with(document_data, nonce, unix_time) {
+            Ok((payload, attestation_document)) => {
+                println!("payload {:?}", payload.pcrs);
+            }
             Err(e) => panic!("parse_verify_with failed: {:?}", e.to_string()),
         }
     }
